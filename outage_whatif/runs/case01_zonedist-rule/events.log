@@ -1,0 +1,48 @@
+[R1] spawned CAP:S2 (major exit for V2, V4)
+[R1] spawned CAP:S3 (major exit for BG)
+[R1] spawned CAP:S4 (major exit for BG)
+[R1] spawned CAP:S6 (major exit for V5, V6)
+[R1] spawned CAP:S8 (major exit for BG)
+[R1] executed R1:ring_sample:INT:0 (sample 4 ring points in sector 0) price=4.92; predicted=clean actual=still_undecided
+[R2] executed R2:ring_sample:INT:0 (sample 4 ring points in sector 0) price=4.92; predicted=clean actual=clean
+[R3] executed R3:ring_sample:INT:1 (sample 4 ring points in sector 1) price=4.92; predicted=clean actual=contaminated
+[R4] boundary expansion forced in sector 1 (integrity refuted)
+[R5] spawned CAP:S9 (major exit for BG)
+[R5] executed R5:ring_sample:INT:2 (sample 4 ring points in sector 2) price=4.92; predicted=clean actual=clean
+[R6] executed R6:ring_sample:INT:3 (sample 4 ring points in sector 3) price=4.92; predicted=clean actual=clean
+[R7] executed R7:pm_hourly:S3 (hourly PRB for S3 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R8] executed R8:ring_sample:INT:4 (sample 4 ring points in sector 4) price=4.92; predicted=clean actual=still_undecided
+[R9] executed R9:ring_sample:INT:4 (sample 4 ring points in sector 4) price=4.92; predicted=clean actual=clean
+[R10] executed R10:pm_hourly:S4 (hourly PRB for S4 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R11] executed R11:coverage_densify:COV:V5 (densify 1 unsampled evidence cells in V5) price=1.0; predicted=clears_theta actual=clears_theta
+[R12] executed R12:ring_sample:INT:5 (sample 4 ring points in sector 5) price=4.92; predicted=clean actual=still_undecided
+[R13] executed R13:ring_sample:INT:5 (sample 4 ring points in sector 5) price=4.92; predicted=clean actual=clean
+[R14] executed R14:pm_hourly:S8 (hourly PRB for S8 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R15] executed R15:ring_sample:INT:6 (sample 4 ring points in sector 6) price=4.92; predicted=clean actual=still_undecided
+[R16] executed R16:ring_sample:INT:6 (sample 4 ring points in sector 6) price=4.92; predicted=clean actual=clean
+[R17] executed R17:pm_hourly:S9 (hourly PRB for S9 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R18] executed R18:ring_sample:INT:7 (sample 4 ring points in sector 7) price=4.92; predicted=clean actual=clean
+[R19] executed R19:bg_sweep:COV:BG (background-grid sweep, 6 points) price=7.85; predicted=falls_below_theta actual=still_straddling
+[R20] killed CAP:S3 (no longer anyone's best alternative)
+[R20] killed CAP:S8 (no longer anyone's best alternative)
+[R20] killed CAP:S9 (no longer anyone's best alternative)
+[R20] agent1 fuse active: routed to baseline this round
+[R20] executed R20:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R21] executed R21:pm_hourly:S2 (hourly PRB for S2 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R22] executed R22:bg_sweep:COV:BG (background-grid sweep, 7 points) price=9.37; predicted=still_straddling actual=still_straddling
+[R23] executed R23:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R24] executed R24:bg_sweep:COV:BG (background-grid sweep, 7 points) price=9.37; predicted=still_straddling actual=still_straddling
+[R25] executed R25:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R26] executed R26:bg_sweep:COV:BG (background-grid sweep, 6 points) price=7.85; predicted=still_straddling actual=still_straddling
+[R27] executed R27:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R28] executed R28:bg_sweep:COV:BG (background-grid sweep, 6 points) price=7.85; predicted=still_straddling actual=still_straddling
+[R29] executed R29:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R30] executed R30:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R31] executed R31:bg_sweep:COV:BG (background-grid sweep, 7 points) price=9.37; predicted=still_straddling actual=still_straddling
+[R32] executed R32:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R33] executed R33:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=falls_below_theta actual=still_straddling
+[R34] executed R34:bg_sweep:COV:BG (background-grid sweep, 7 points) price=9.37; predicted=still_straddling actual=still_straddling
+[R35] executed R35:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=still_straddling
+[R36] executed R36:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=still_straddling actual=falls_below_theta
+[R37] no ticketed claims; idle round (stability check)
+[R38] no ticketed claims; idle round (stability check)

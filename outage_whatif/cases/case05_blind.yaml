@@ -1,0 +1,14 @@
+name: case05
+kind: blind
+seed: 505
+budget: 420
+outage_start: "2026-07-04T10:00"
+outage_end: "2026-07-04T18:00"
+sim:
+  headroom: mixed
+  weak_neighbors: 1
+  village_count: 8
+  n_extra_sites: 3
+  spikiness: mixed
+  holiday_factor: 1.3
+  seasonal: true

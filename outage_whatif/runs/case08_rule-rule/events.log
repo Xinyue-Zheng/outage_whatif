@@ -1,0 +1,24 @@
+[R1] spawned CAP:S2 (major exit for BG, V4)
+[R1] spawned CAP:S6 (major exit for V2, V3)
+[R1] spawned CAP:S7 (major exit for V1)
+[R1] spawned CAP:S8 (major exit for BG, V1)
+[R1] boundary expansion forced in sector 0 (integrity refuted)
+[R2] executed R2:ring_sample:INT:1 (sample 4 ring points in sector 1) price=4.92; predicted=clean actual=clean
+[R3] executed R3:ring_sample:INT:2 (sample 4 ring points in sector 2) price=4.92; predicted=clean actual=clean
+[R4] executed R4:ring_sample:INT:3 (sample 4 ring points in sector 3) price=4.92; predicted=clean actual=clean
+[R5] executed R5:pm_hourly:S8 (hourly PRB for S8 over the outage-matched window) price=4.8; predicted=middle_zone actual=support_zone
+[R6] executed R6:ring_sample:INT:4 (sample 4 ring points in sector 4) price=4.92; predicted=clean actual=clean
+[R7] executed R7:ring_sample:INT:5 (sample 4 ring points in sector 5) price=4.92; predicted=clean actual=contaminated
+[R8] boundary expansion forced in sector 5 (integrity refuted)
+[R9] executed R9:ring_sample:INT:5 (sample 4 ring points in sector 5) price=4.92; predicted=clean actual=clean
+[R10] executed R10:pm_hourly:S7 (hourly PRB for S7 over the outage-matched window) price=4.8; predicted=middle_zone actual=support_zone
+[R11] executed R11:ring_sample:INT:6 (sample 4 ring points in sector 6) price=4.92; predicted=clean actual=still_undecided
+[R12] executed R12:ring_sample:INT:6 (sample 4 ring points in sector 6) price=4.92; predicted=clean actual=clean
+[R13] executed R13:ring_sample:INT:7 (sample 4 ring points in sector 7) price=4.92; predicted=clean actual=contaminated
+[R14] boundary expansion forced in sector 7 (integrity refuted)
+[R15] executed R15:pm_hourly:S6 (hourly PRB for S6 over the outage-matched window) price=4.8; predicted=middle_zone actual=support_zone
+[R16] executed R16:pm_hourly:S2 (hourly PRB for S2 over the outage-matched window) price=4.8; predicted=middle_zone actual=support_zone
+[R17] executed R17:ring_sample:INT:7 (sample 4 ring points in sector 7) price=4.92; predicted=clean actual=clean
+[R18] executed R18:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=falls_below_theta actual=falls_below_theta
+[R19] no ticketed claims; idle round (stability check)
+[R20] no ticketed claims; idle round (stability check)

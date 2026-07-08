@@ -1,0 +1,12 @@
+name: case03
+kind: blind
+seed: 303
+budget: 420
+outage_start: "2026-07-20T10:00"
+outage_end: "2026-07-20T18:00"
+sim:
+  headroom: ample
+  weak_neighbors: 0
+  village_count: 7
+  n_extra_sites: 4
+  spikiness: low

@@ -1,0 +1,31 @@
+[R1] spawned CAP:S2 (major exit for V1, V2)
+[R1] spawned CAP:S3 (major exit for V2)
+[R1] spawned CAP:S4 (major exit for V3)
+[R1] spawned CAP:S6 (major exit for V1, V5, V6)
+[R1] spawned CAP:S7 (major exit for BG)
+[R1] spawned CAP:S8 (major exit for V4)
+[R1] boundary expansion forced in sector 6 (integrity refuted)
+[R2] executed R2:ring_sample:INT:0 (sample 4 ring points in sector 0) price=4.92; predicted=clean actual=still_undecided
+[R3] executed R3:ring_sample:INT:0 (sample 4 ring points in sector 0) price=4.92; predicted=clean actual=contaminated
+[R4] boundary expansion forced in sector 0 (integrity refuted)
+[R5] executed R5:ring_sample:INT:1 (sample 4 ring points in sector 1) price=4.92; predicted=clean actual=clean
+[R6] executed R6:pm_hourly:S6 (hourly PRB for S6 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R7] executed R7:ring_sample:INT:2 (sample 4 ring points in sector 2) price=4.92; predicted=clean actual=clean
+[R8] executed R8:pm_hourly:S2 (hourly PRB for S2 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R9] executed R9:ring_sample:INT:3 (sample 4 ring points in sector 3) price=4.92; predicted=clean actual=clean
+[R10] executed R10:pm_hourly:S8 (hourly PRB for S8 over the outage-matched window) price=6.4; predicted=middle_zone actual=middle_zone
+[R11] drilled down CAP:S8 -> 3 per-cell children
+[R11] executed R11:pm_hourly:S7 (hourly PRB for S7 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R12] executed R12:pm_hourly:S8_c0 (hourly PRB for S8_c0 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R13] executed R13:ring_sample:INT:4 (sample 4 ring points in sector 4) price=4.92; predicted=clean actual=clean
+[R14] executed R14:pm_hourly:S8_c1 (hourly PRB for S8_c1 over the outage-matched window) price=6.4; predicted=middle_zone actual=middle_zone
+[R15] executed R15:pm_hourly:S8_c2 (hourly PRB for S8_c2 over the outage-matched window) price=6.4; predicted=middle_zone actual=middle_zone
+[R16] agent2 fuse active: routed to baseline this round
+[R16] executed R16:ring_sample:INT:5 (sample 4 ring points in sector 5) price=4.92; predicted=clean actual=still_undecided
+[R17] executed R17:ring_sample:INT:5 (sample 4 ring points in sector 5) price=4.92; predicted=clean actual=clean
+[R18] executed R18:pm_15min:S8_c1 (15min PRB for S8_c1 over the outage-matched window) price=25.6; predicted=support actual=refute
+[R19] executed R19:pm_hourly:S3 (hourly PRB for S3 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R20] executed R20:ring_sample:INT:7 (sample 4 ring points in sector 7) price=4.92; predicted=clean actual=still_undecided
+[R21] executed R21:ring_sample:INT:7 (sample 4 ring points in sector 7) price=4.92; predicted=clean actual=clean
+[R22] no ticketed claims; idle round (stability check)
+[R23] no ticketed claims; idle round (stability check)

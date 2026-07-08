@@ -1,0 +1,170 @@
+[
+  {
+    "round": 0,
+    "aid": "init:Track-1 initial sampling",
+    "kind": "coverage",
+    "price": 7.85,
+    "purpose": "Track-1 initial sampling",
+    "claim": "COV:V1"
+  },
+  {
+    "round": 0,
+    "aid": "init:Track-1 initial sampling",
+    "kind": "coverage",
+    "price": 7.85,
+    "purpose": "Track-1 initial sampling",
+    "claim": "COV:V2"
+  },
+  {
+    "round": 0,
+    "aid": "init:Track-1 initial sampling",
+    "kind": "coverage",
+    "price": 4.92,
+    "purpose": "Track-1 initial sampling",
+    "claim": "COV:V3"
+  },
+  {
+    "round": 0,
+    "aid": "init:Track-1 initial sampling",
+    "kind": "coverage",
+    "price": 4.92,
+    "purpose": "Track-1 initial sampling",
+    "claim": "COV:V4"
+  },
+  {
+    "round": 0,
+    "aid": "init:Track-1 initial sampling",
+    "kind": "coverage",
+    "price": 4.92,
+    "purpose": "Track-1 initial sampling",
+    "claim": "COV:V5"
+  },
+  {
+    "round": 0,
+    "aid": "init:Track-1 initial sampling",
+    "kind": "coverage",
+    "price": 4.92,
+    "purpose": "Track-1 initial sampling",
+    "claim": "COV:V6"
+  },
+  {
+    "round": 0,
+    "aid": "init:Track-2 fuse grid",
+    "kind": "coverage",
+    "price": 9.37,
+    "purpose": "Track-2 fuse grid",
+    "claim": "COV:BG"
+  },
+  {
+    "round": 1,
+    "aid": "R1:ring_sample:INT:0",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:0",
+    "claim": "INT:0"
+  },
+  {
+    "round": 2,
+    "aid": "R2:ring_sample:INT:1",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:1",
+    "claim": "INT:1"
+  },
+  {
+    "round": 3,
+    "aid": "R3:ring_sample:INT:2",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:2",
+    "claim": "INT:2"
+  },
+  {
+    "round": 4,
+    "aid": "R4:pm_hourly:S6",
+    "kind": "pm_hourly",
+    "price": 6.4,
+    "purpose": "resolve CAP:S6",
+    "claim": "CAP:S6"
+  },
+  {
+    "round": 5,
+    "aid": "R5:ring_sample:INT:4",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:4",
+    "claim": "INT:4"
+  },
+  {
+    "round": 6,
+    "aid": "R6:ring_sample:INT:5",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:5",
+    "claim": "INT:5"
+  },
+  {
+    "round": 7,
+    "aid": "R7:pm_hourly:S11",
+    "kind": "pm_hourly",
+    "price": 6.4,
+    "purpose": "resolve CAP:S11",
+    "claim": "CAP:S11"
+  },
+  {
+    "round": 8,
+    "aid": "R8:ring_sample:INT:5",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:5",
+    "claim": "INT:5"
+  },
+  {
+    "round": 9,
+    "aid": "R9:ring_sample:INT:6",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:6",
+    "claim": "INT:6"
+  },
+  {
+    "round": 10,
+    "aid": "R10:pm_hourly:S8",
+    "kind": "pm_hourly",
+    "price": 6.4,
+    "purpose": "resolve CAP:S8",
+    "claim": "CAP:S8"
+  },
+  {
+    "round": 11,
+    "aid": "R11:ring_sample:INT:7",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:7",
+    "claim": "INT:7"
+  },
+  {
+    "round": 12,
+    "aid": "R12:ring_sample:INT:7",
+    "kind": "ring_sample",
+    "price": 4.92,
+    "purpose": "resolve INT:7",
+    "claim": "INT:7"
+  },
+  {
+    "round": 13,
+    "aid": "R13:pm_hourly:S2",
+    "kind": "pm_hourly",
+    "price": 6.4,
+    "purpose": "resolve CAP:S2",
+    "claim": "CAP:S2"
+  },
+  {
+    "round": 14,
+    "aid": "final:target_rrc",
+    "kind": "pm_hourly",
+    "price": 6.4,
+    "purpose": "target baseline RRC (reporting/validation only)",
+    "claim": null
+  }
+]

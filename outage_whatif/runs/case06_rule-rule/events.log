@@ -1,0 +1,24 @@
+[R1] spawned CAP:S10 (major exit for V1)
+[R1] spawned CAP:S2 (major exit for BG, V3)
+[R1] spawned CAP:S4 (major exit for BG)
+[R1] spawned CAP:S8 (major exit for BG, V2, V4, V5)
+[R1] boundary expansion forced in sector 5 (integrity refuted)
+[R2] executed R2:ring_sample:INT:1 (sample 4 ring points in sector 1) price=4.92; predicted=clean actual=clean
+[R3] executed R3:ring_sample:INT:2 (sample 4 ring points in sector 2) price=4.92; predicted=clean actual=contaminated
+[R4] boundary expansion forced in sector 2 (integrity refuted)
+[R5] spawned CAP:S7 (major exit for BG)
+[R5] killed CAP:S4 (no longer anyone's best alternative)
+[R5] executed R5:ring_sample:INT:3 (sample 4 ring points in sector 3) price=4.92; predicted=clean actual=clean
+[R6] executed R6:ring_sample:INT:4 (sample 4 ring points in sector 4) price=4.92; predicted=clean actual=clean
+[R7] executed R7:pm_hourly:S2 (hourly PRB for S2 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R8] executed R8:ring_sample:INT:5 (sample 4 ring points in sector 5) price=4.92; predicted=clean actual=clean
+[R9] executed R9:ring_sample:INT:6 (sample 4 ring points in sector 6) price=4.92; predicted=clean actual=clean
+[R10] executed R10:pm_hourly:S7 (hourly PRB for S7 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R11] executed R11:ring_sample:INT:7 (sample 4 ring points in sector 7) price=4.92; predicted=clean actual=contaminated
+[R12] boundary expansion forced in sector 7 (integrity refuted)
+[R13] spawned CAP:S3 (major exit for BG)
+[R13] executed R13:pm_hourly:S3 (hourly PRB for S3 over the outage-matched window) price=6.4; predicted=middle_zone actual=support_zone
+[R14] executed R14:bg_sweep:COV:BG (background-grid sweep, 8 points) price=10.93; predicted=falls_below_theta actual=falls_below_theta
+[R15] killed CAP:S3 (no longer anyone's best alternative)
+[R15] no ticketed claims; idle round (stability check)
+[R16] no ticketed claims; idle round (stability check)

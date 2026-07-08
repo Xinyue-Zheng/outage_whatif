@@ -1,0 +1,12 @@
+name: case08
+kind: blind
+seed: 808
+budget: 420
+outage_start: "2026-07-26T10:00"
+outage_end: "2026-07-26T16:00"
+sim:
+  headroom: ample
+  weak_neighbors: 2
+  village_count: 6
+  n_extra_sites: 0
+  spikiness: low

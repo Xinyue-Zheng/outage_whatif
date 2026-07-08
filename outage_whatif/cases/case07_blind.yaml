@@ -1,0 +1,12 @@
+name: case07
+kind: blind
+seed: 707
+budget: 500
+outage_start: "2026-07-25T09:00"
+outage_end: "2026-07-25T21:00"
+sim:
+  headroom: tight
+  weak_neighbors: 1
+  village_count: 9
+  n_extra_sites: 3
+  spikiness: high

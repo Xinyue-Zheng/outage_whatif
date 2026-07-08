@@ -1,0 +1,12 @@
+name: case02
+kind: calibration
+seed: 202
+budget: 420
+outage_start: "2026-07-21T10:00"
+outage_end: "2026-07-21T18:00"
+sim:
+  headroom: tight
+  weak_neighbors: 1
+  village_count: 8
+  n_extra_sites: 2
+  spikiness: high
