@@ -1,142 +1,217 @@
-# PROJECT.md — background and alignment document
+# PROJECT.md — canonical system description
 
-This file is the shared context for everyone (and every AI assistant)
-working on this project across its two workspaces. Read it before making
-changes; update it when the picture changes.
+Describes the system AS IMPLEMENTED. Where older spec text and the code
+disagree, the code wins; known disagreements are listed in §8 (drift
+notes), not silently resolved. Every claim here is checkable against the
+code.
 
-## 1. What this project is
+## 1. Problem & question
 
-**outage_whatif** answers a telecom planning question: a target eNodeB
-(cell site) will be switched off during a known outage window — *can the
-neighboring sites absorb the target's users?* The answer is qualitative,
-per populated settlement and overall: `fully absorbable`, `locally
-degraded`, or `severe hole exists`.
+A target eNodeB in a rural sparse network will be switched off during a
+ticketed outage window (possibly many hours). One run answers one
+conditional question: **if the outage's effect is assessed at a selected
+`analysis_hour` within the ticket window, can the neighboring sites
+absorb the target's users?** One run = one (case, analysis_hour) pair.
 
-Two things make it interesting:
+The answer is qualitative — per populated settlement and overall:
+`fully absorbable` / `locally degraded` / `severe hole exists`. The
+system verifies **necessary conditions** for absorption as three-valued
+claims — coverage, capacity, robustness, integrity — and never predicts
+how traffic would actually redistribute; a violated necessary condition
+refutes absorption, verified conditions support it.
 
-1. **Every piece of data costs money.** Coverage probes, KPI (PM counter)
-   series, and historical profiles are bought from a data platform against
-   a finite per-case budget B. The system must decide, round by round,
-   what the next unit of budget buys — sequential decision-making under a
-   budget, not batch analysis.
-2. **It is an experiment about LLM agents.** Everything enumerable is
-   deterministic code. Exactly ONE judgment is delegated to agents: the
-   prior likelihood of what a query will return before it is run. Two
-   agent "seats" exist (see §3), and each can be filled by an LLM or by a
-   rule baseline. The headline question: does the LLM earn its keep vs
-   `rule/rule` under identical code and identical budget?
+Every data item is priced (coverage probes, PM/KPI series, historical
+profiles) against a finite per-case budget B, so this is a
+budget-constrained sequential query-decision problem: each round decides
+what the next unit of budget buys.
 
-## 2. The question is conditional on one hour
+## 2. Design principles
 
-The ticket keeps its full multi-hour outage window, but **one run = one
-(case, analysis_hour) pair**: "IF the outage's effect is evaluated at
-`analysis_hour` (a clock-hour inside the window), can neighbors absorb?"
+- Claims are three-valued (supported / refuted / undecided); *undecided*
+  is a purchasing decision — spend to resolve it, or stop and disclose.
+- Everything enumerable is deterministic code: adjudication, ordering,
+  arithmetic, pricing, verdict.
+- Exactly one judgment is delegated to agents: the prior likelihood of a
+  query's outcome before it is run.
+- Exactly two LLM call sites exist (seat 1, seat 2) — nowhere else.
+- Rule baselines are swappable into either seat; agent value is an
+  experimental hypothesis (`rule/rule` vs `llm/llm`), not a premise.
+- Definitional rules and [POLICY] rules are kept separate; [POLICY]
+  constants (`config.py` Policy block) require advisor sign-off.
+- Declared boundary: handover misconfiguration, transport bottlenecks,
+  and everything else invisible to the inputs is outside every
+  conclusion (stated verbatim in every report).
 
-- `analysis_hour` must lie inside the ticket window (validated at init;
-  invalid → case rejected). If omitted, a [POLICY] default rule picks it
-  (busiest window hour per a held target profile, else the window
-  midpoint) and the report flags that the default fired.
-- Capacity evidence = the k=4 matched occurrences of that hour on
-  comparable days (same clock-hour + same weekday, most recent k weeks;
-  holiday outages match holiday-class days; known-outage dates excluded).
-  The hourly tier adjudicates the MEAN of the k values; the 15-minute
-  tier the spike fraction over the 4k=16 bins (≥2 spiking bins refute).
-- Coverage/robustness/integrity are hour-invariant (radio geometry).
-- Run IDs carry the hour: `case01_h17_rule-rule`. Reports state the
-  conditionality verbatim near the top.
+## 3. Current architecture
 
-## 3. How it works (one round)
+Orchestration is a LangGraph StateGraph (`loop/graph.py`); one round =
+one graph invocation (`CaseRunner.step()`); `run()` loops rounds. The
+topology is locked by `tests/test_graph_topology.py`. Nodes:
 
-The system's state is a board of falsifiable **claims**, three-valued
-(supported / refuted / undecided):
-- **coverage** — settlement S keeps service from neighbors (Wilson
-  interval over 300 m evidence cells vs θ),
-- **capacity** — exit neighbor N has headroom (two tiers, see §2),
-- **robustness** — alternatives not concentrated in one owner (vs κ),
-- **integrity** — the analysis boundary is drawn correctly.
+| node | responsibility |
+|---|---|
+| `advance` | round counter, max-round safety stop, seeded RNG |
+| `adjudicate_lifecycle` | re-adjudicate all claims from evidence; claim spawn/kill/split |
+| `assess` | build priced action menu; flip-test tickets; verdict; dependency table; route blocked runs |
+| `expand_boundary` | forced deterministic boundary expansion + resampling (no agents; unreachable in static-square mode) |
+| `stop_check` | stop rules: verdict stable, budget exhausted, nothing can flip; idle-round limit |
+| `build_tables` | render the agents' entire world: claim board, dependency table, anchor digest |
+| `seat1` **(LLM seat)** | Agent 1 grades every ticketed item; code derives the ordering; divergence vs baseline logged |
+| `seat2` **(LLM seat)** | Agent 2 picks one purchase; guardrail + mechanical checks; retry → rule fallback → cheapest compliant sweep |
+| `execute` | pay, store returned data, re-adjudicate, reconcile prediction ledgers |
 
-Each round (a LangGraph StateGraph, `loop/graph.py` — topology LOCKED by
-`tests/test_graph_topology.py`):
+Graph state (`RoundState`) carries intra-round intermediates only: `rng`,
+`view`, `menu`, `price_map`, `deps`, `affordable`/`affordable_ticketed`,
+`board`, `digest`, `out1`, `candidates`, `menu2`, `out2`, `stop`, `goto`.
+Cross-round state lives on `CaseRunner` (claims, ledgers, boundary,
+budget, matched windows).
 
-1. re-adjudicate claims, run claim lifecycle (spawn/kill/split);
-2. build the action menu with prices; flip-test which claims could still
-   change the verdict (those hold "tickets");
-3. stop checks (verdict stable / budget gone / nothing can flip);
-4. render the agents' entire closed-book world: claim board, dependency
-   table, anchor digest;
-5. **Seat 1 (prioritizer)** grades every ticketed item {high,mid,low};
-   code computes the ranking FROM the grades (a theorem, not a choice);
-6. **Seat 2 (action chooser)** picks one purchase with a predicted
-   outcome bucket; a code guardrail + mechanical contradiction checks can
-   reject it (one retry → rule fallback → cheapest compliant sweep);
-7. execute, pay, reconcile both agents' prediction ledgers (two
-   consecutive misses trip a "fuse" routing that seat to its baseline).
+Closed-book rule: seat 1 sees exactly the claim board, dependency table,
+and anchor digest; seat 2 sees the candidate ordering, the menu filtered
+to it, the digest, zone constants, and the dependency table. Nothing
+else.
 
-"Seat" = a role that either an LLM or a rule can occupy. Arms are named
-`seat1/seat2`: `rule/rule`, `zonedist/rule`, `llm/llm`, plus mixed
-ablations. LLM transport is LangChain → Ollama (`agents/llm.py`,
-`Config.llm_model`, default `llama3.1`; `$OLLAMA_HOST` or
-localhost:11434). There is deliberately NO Anthropic/OpenAI dependency.
+Validation/retry/fallback: every LLM response is mechanically validated
+(schema completeness, verbatim citations, re-verified arithmetic) — one
+retry with the reason, then that seat falls back to its rule baseline for
+the round. The code guardrail runs after Agent 2 only (top-quartile price
+requires grade=high unless a prerequisite resolved cheaply). Each agent
+has a two-consecutive-miss fuse that routes it to its baseline for one
+round. There is NO critic LLM: duplicate/contradiction checks are code
+table-lookups, and the off-menu directed-probe channel is closed
+(`engine.py`, MECHANICAL-CHECKS EXTENSION POINT).
 
-Every run directory gets `report.md`, `ledger.json`, `trace.jsonl` (every
-node decision + every queried datum, labeled by round and purpose — this
-is the file to build visualizations from), and `round_graph.mmd`.
+## 4. Key mechanisms
 
-## 4. The two workspaces
+**Flip test & tickets.** After each adjudication pass, every open claim
+is flipped to supported and to refuted; if the verdict differs, the claim
+holds a ticket. Only ticketed claims justify spending — budget on an
+unticketed claim cannot change the answer.
 
-| | Workspace A (origin) | Workspace B (adaptation) |
-|---|---|---|
-| Assistant | Claude Code | GitHub Copilot |
-| Data | synthetic simulator (`provider/simulator.py`) | real files |
-| Cases | 10 YAML scenarios in `cases/` | tickets CSV (enodeb, start, end) |
-| KPI | simulated on demand | user's query script — ONE run returns ALL metrics; batch + cache |
-| Coverage | simulated on demand | ~900 JSON tiles (1 km each, 10 m cubes) over a 30×30 km area |
-| Population | simulated raster | user's population read script |
-| Boundary | adaptive circle (default) | `static_area_km: 30` (fixed square) |
+**Dependency table.** For each ticketed outcome, the savings unlocked if
+it lands that way (queries that stop being necessary). Priced from the
+cheapest resolving action per claim; recomputed every round.
 
-Workspace B's task list lives in **COPILOT_PROMPT.md** (fill in the
-blanks, paste to Copilot). The key adapter to build there is
-`provider/platform.py::FileProvider` implementing the `DataProvider`
-interface (`provider/interface.py`) — the deliberate seam between
-analysis logic and data source. Everything above that seam is shared and
-should only change in workspace A, then flow to B via git.
+**Agent 1 (prioritization).** Emits one grade in {high, mid, low} per
+ticketed item with a verbatim citation from the tables (fabricated
+citations are rejected) and an optional one-step clue adjustment
+(named clues include holiday flags, matched_hour_spread, busy_hour_flag).
+Code computes the ordering from the grades — per claim: grade-weighted
+population stake plus grade-weighted dependency savings, divided by the
+cheapest resolving price; the ordering is a theorem of the stated grades.
 
-**Boundary note (supersedes older specs):** with `static_area_km > 0` the
-start area is an exact fixed square centered on the target; there is no
-integrity ring, no integrity claims, and no boundary expansion. The
-"R0 = 0.75 × median 6-NN distance" circle in any older document refers to
-the default (`static_area_km = 0`) mode only. Do not restore the circle.
+**Agent 2 (action choice).** Predicts an outcome bucket + grade for the
+candidates, with worst-case escalation arithmetic (effective cost =
+sticker + follow-up forced by the predicted bucket; re-verified by code)
+required to pick any non-cheapest action, an optional judgment-firming
+profile purchase, and a mandatory contingency line for every bucket in
+the chosen action's outcome space.
 
-## 5. Current state (2026-07-08)
+**Ledger reconciliation.** Every purchase's actual outcome bucket is
+reconciled against Agent 2's prediction immediately (profiles: scored
+next round on whether the relevant grade moved). Agent 1's grades are
+reconciled when the lever's query executes. Per-grade hit rates and the
+fuse state are shown back to the agents in the digest. Known selection
+bias (documented): only chosen rows reconcile.
 
-Done: milestones M1–M8 (geometry, provider, claims/verdict, planning,
-loop, LLM seats, eval harness, per-hour analysis); LangGraph round loop;
-Ollama/LangChain transport; static-square mode; decision/query tracing;
-71 tests green.
+## 5. Current parameter decisions
 
-Not done / pending:
-- the `llm/llm` arm has NEVER run (no Ollama server was available on the
-  workspace-A host) — rule/rule and zonedist/rule results in `runs/`;
-- `FileProvider` (workspace B) not yet written;
-- the "sweep all hours of the window" loop — deliberately NOT
-  implemented; a marked EXTENSION POINT sits in `eval/harness.py`.
+| parameter | value | [POLICY] | meaning |
+|---|---|---|---|
+| `static_area_km` | 0 default; **30 for real-data runs** | no (Config) | >0: start area is a fixed square (exact containment), centered on the target; no integrity ring/claims, no expansion. 0: adaptive circle R0 = 0.75 × median 6-NN distance with integrity correction loop |
+| `analysis_hour` | per run | — | must lie inside the ticket window (validated at runner init; invalid → case rejected); stamped into run ID (`case01_h17_...`) and report |
+| `analysis_hour_default_rule` | busiest-profile else midpoint | yes | fires when the ticket omits the hour; the report flags which rule fired |
+| `comparable_days_k` | 4 | yes | capacity evidence = k matched occurrences of the analysis hour: same clock-hour + weekday, most recent k weeks; holiday outages match holiday-class days; `known_outage_dates` excluded. Hourly tier = mean of k; 15-min tier = spike fraction over 4k=16 bins (≥2 spiking bins refute) |
+| `theta` | 0.90 | yes | coverage pass proportion (Wilson-tested; exact census decides when complete) |
+| `pi_hi` | 0.85 | yes | PRB utilisation treated as "no headroom" |
+| `kappa` | 0.60 | yes | max top-owner share of best alternatives (robustness) |
+| `sigma` | 0.20 | yes | major-exit share: neighbor is a genuine exit iff best alternative for ≥ σ of footprint cells |
+| `P_min` | 50 | yes | settlements below this population get no individual claims (absorbed into background; disclosed) |
+| `P0` | 200 | yes | severe-hole population line |
+| `cap15_refute_frac` | 0.10 | yes | 15-min tier refute threshold |
+| `calib_false_pass_max` | 0.05 | yes | max false-pass rate for the calibrated hourly support edge |
+| `z` | 1.96 | no | Wilson score |
+| `evidence_cell_m` | 300 | no | effective-evidence cells; all coverage/robustness statistics count cells, never raw points |
+| `escalation_mode` | `worst_case` | no (Config) | `weighted` is reserved, not implemented |
 
-## 6. Conventions and guardrails
+## 6. Data & evaluation
 
-- Python 3.11 venv at repo root; recreate with
-  `uv venv --python 3.11 .venv && uv pip install -r requirements.txt`;
-  always run from the repo root (`python -m outage_whatif...`).
-- Tests: `python -m pytest outage_whatif/tests -q` (all pass without any
-  LLM server). Experiments: `python -m outage_whatif.eval.harness`.
-- **[POLICY]** constants (`config.py` Policy block) encode discretionary
-  judgment and require advisor sign-off to change. **DESIGN-GAP** markers
-  flag places where the spec was silent and the simplest option was
-  chosen (inventory in README.md).
-- The orchestration graph's topology is locked by
-  `tests/test_graph_topology.py`; change requests that say "the graph
-  must not change" are proven by running it before and after.
-- The verdict function, agent JSON schemas, and graph wiring are the
-  most protected areas — treat changes there as scope changes needing
-  explicit sign-off.
-- Config overrides go in an optional `outage_whatif/config.yaml`
-  (never edit defaults casually); LLM model/host live there too.
+All paid data flows through the `DataProvider` interface
+(`provider/interface.py`): `topology`, `population_raster`,
+`query_coverage`, `query_pm` (+ `query_pm_matched` default that
+concatenates the k matched hours), `buy_profile(site, kind, hour=None)`,
+`quote`. The simulator (`provider/simulator.py`) implements it today; a
+real-platform `FileProvider` implements the same seam later
+(COPILOT_PROMPT.md). The LLM transport is LangChain → Ollama
+(`agents/llm.py`; model/host in config; tests use `MockLLM`, no server
+needed).
+
+Prices come from one encapsulated function (`provider/pricing.py`);
+"cheap"/"expensive" exist only as quartiles within a round's menu, never
+as data-type properties. PM is priced over the k matched hours.
+
+Evaluation: 10 simulated cases (2 calibration + 8 blind; case files pin
+2 busy-hour and 2 off-peak analysis selections, the harness defaults the
+rest to the window's busiest diurnal hour). The swap harness runs arms on
+identical code and budget: headline `rule/rule` vs `llm/llm` on the blind
+cases; mixed ablations on the calibration cases; an unlimited-budget
+oracle run per case gives the ceiling. Departures of an LLM seat from its
+baseline are logged first-class (divergence log). Ground truth is
+computed from the simulator's hidden parameters with perfect information
+at the matched analysis hours, using the same necessary-condition
+semantics as the claim system (see drift note 3). Each run writes
+`report.md` (with a mandatory conditionality block naming the assessed
+hour), `ledger.json`, `trace.jsonl` (every node decision and every
+queried datum, labeled by round and purpose), and `round_graph.mmd`.
+
+## 7. Status & extension points
+
+Implemented and tested (71 tests, no LLM server required): geometry and
+segmentation, claims/adjudication/lifecycle, verdict + flip tests,
+planning/menu/calibration (matched-hour, `calib-v2`), the LangGraph round
+loop, rule baselines, LLM seats with validators, swap harness + metrics,
+per-hour analysis, static-square mode, run tracing.
+
+Not implemented / never run:
+- the `llm/llm` arm has never executed (no Ollama server on the dev
+  host); `runs/` holds `rule/rule` and `zonedist/rule` results;
+- `FileProvider` (real-data adapter) is not written — task spec in
+  COPILOT_PROMPT.md;
+- hour-sweep runner: marked `EXTENSION POINT (hour sweep)` in
+  `eval/harness.py::run_case` — iterate (case, analysis_hour) pairs;
+- critic reinstatement: marked `MECHANICAL-CHECKS EXTENSION POINT` in
+  `loop/engine.py::_mechanical_checks`;
+- weighted escalation mode: reserved in config (`worst_case | weighted`).
+
+`# DESIGN-GAP` markers (verbatim inventory, README has details):
+`config.py` illustrative holiday calendar; `planning/sampling.py`
+population-proportional allocation realised as one cell per P0/8;
+`loop/tables.py` integrity claims carry a constant P0 stake;
+`claims/lifecycle.py` capacity drill-down trigger = stuck in the hourly
+middle zone ≥ 2 rounds; `claims/adjudicate.py` 30% footprint-share
+unaffected rule; `provider/pricing.py` requested points proxy
+area×density; `agents/ledger.py` one-round fuse penalty duration;
+`provider/simulator.py` ground truth measures recovery of truth, not the
+physical outcome of an outage.
+
+## 8. Drift notes (spec text vs code — code wins)
+
+1. **Start area.** Older notes call the 30 km × 30 km square "the" start
+   area and "a [POLICY] constant". In code, `static_area_km` is a plain
+   Config field (not in the Policy block) defaulting to **0**, i.e. the
+   adaptive R0 circle; the square activates only when a run sets it
+   (intended for real-data runs). The simulator cases still run on the
+   circle.
+2. **Default-hour rule.** The [POLICY] rule says "busiest hour per the
+   target's historical profile if already held, else midpoint". At runner
+   init no profile is ever held, so in-run defaulting always lands on the
+   midpoint; the busiest branch is reachable only by passing a profile
+   explicitly. Eval-side busiest-hour selection lives in the harness
+   (`select_eval_hour`), not in this rule.
+3. **"Ground truth from RRC-delta."** Not what the code does: ground
+   truth uses PRB-based necessary-condition semantics (coverage pass
+   share; 15-minute PRB spike fraction at the matched hours). The
+   target's RRC baseline is purchased at stop for reporting/validation
+   only.
+4. **"Scout-model rule promotion" extension point.** No such marker or
+   mechanism exists in the code.
