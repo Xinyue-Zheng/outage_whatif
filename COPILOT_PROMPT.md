@@ -1,5 +1,8 @@
 # Prompt for Copilot — adapt outage_whatif to real data (fill the blanks, then paste)
 
+Project background and cross-workspace alignment: see PROJECT.md (read it
+if unsure about intent; this prompt is self-sufficient for the task).
+
 NOTE: the initial analysis boundary is now a fixed 30km x 30km square
 centered on the target (already implemented) — this supersedes the
 "R0 = 0.75 x median 6-NN distance" circle in any spec document. Do not

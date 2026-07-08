@@ -1,5 +1,10 @@
 # outage_whatif — budget-constrained, agent-driven what-if analysis of cell-site outages
 
+> New here or switching workspaces? **PROJECT.md** is the background and
+> alignment document (what/why, per-hour semantics, the two workspaces,
+> current state, conventions). **COPILOT_PROMPT.md** is the fill-in task
+> prompt for the real-data adaptation workspace.
+
 A target eNodeB will be switched off during a known window. Per populated
 subregion and overall, the system decides **qualitatively** whether the
 neighboring sites can absorb the target's users. Every piece of data costs
