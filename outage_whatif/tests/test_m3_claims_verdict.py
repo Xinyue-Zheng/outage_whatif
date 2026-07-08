@@ -289,3 +289,19 @@ def test_lifecycle_capacity_drilldown():
     assert len(cap.children) == 3
     assert "CAP:S2:S2_c1" in claims
     assert any("drilled down" in e for e in ev)
+
+
+def test_lifecycle_drilldown_disabled_for_site_level_analysis():
+    import dataclasses
+    cfg = dataclasses.replace(CFG, capacity_drilldown=False)
+    raster = _mini_raster()
+    claims = ClaimSet()
+    cap = claims.add(Claim(cid="CAP:S2", ctype=CAPACITY, subject="S2",
+                           state=UNDECIDED,
+                           detail={"zone": "middle_zone"},
+                           rounds_undecided=cfg.drilldown_after_rounds))
+    roster = {"S2_c0": "S2", "S2_c1": "S2", "S2_c2": "S2"}
+    view = EvidenceView(owner_shares={"V1": {"S2": 1.0}})
+    ev = run_lifecycle(claims, view, {}, raster, roster, cfg, round_no=4)
+    assert not cap.drilled and not cap.children
+    assert not any("drilled down" in e for e in ev)

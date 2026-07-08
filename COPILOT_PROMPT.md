@@ -66,8 +66,9 @@ Wire into `outage_whatif/eval/harness.py::run_case` (currently hardcodes
 
 ## 4. Check the Ollama endpoint
 
-Set `llm_model=<MODEL>`, `ollama_host=<OLLAMA_HOST>` in `config.py` (or a
-`config.yaml` next to it). Client: `outage_whatif/agents/llm.py::OllamaLLM`
+Set `llm_model=<MODEL>`, `ollama_host=<OLLAMA_HOST>`, and
+`capacity_drilldown: false` (site-level analysis — the KPI source has no
+per-cell PM) in `config.py` (or a `config.yaml` next to it). Client: `outage_whatif/agents/llm.py::OllamaLLM`
 (LangChain ChatOllama, strict JSON via `format`=schema). Verify
 `GET <OLLAMA_HOST>/api/tags` lists `<MODEL>`, then smoke-test one
 `OllamaLLM.complete_json()` call.

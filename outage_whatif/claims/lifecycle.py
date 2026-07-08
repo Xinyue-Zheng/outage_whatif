@@ -154,8 +154,10 @@ def run_lifecycle(claims: ClaimSet, view: EvidenceView, subregions: dict,
     # ---- capacity drill-down to per-cell children
     # DESIGN-GAP: trigger = stuck undecided at site level (middle zone) for
     # >= drilldown_after_rounds rounds; the spec names the mechanism but not
-    # the exact trigger.
-    for c in list(claims.by_type(CAPACITY)):
+    # the exact trigger.  Disabled entirely when cfg.capacity_drilldown is
+    # False (site-level analysis; data source has no per-cell PM) — the
+    # stuck claim's remedy stays the 15-minute site query.
+    for c in list(claims.by_type(CAPACITY)) if cfg.capacity_drilldown else []:
         if (c.parent is not None or c.drilled or c.state != UNDECIDED
                 or c.detail.get("zone") != "middle_zone"
                 or c.rounds_undecided < cfg.drilldown_after_rounds):

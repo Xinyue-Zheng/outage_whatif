@@ -90,6 +90,10 @@ class Config:
 
     # ---------------- claims / lifecycle ----------------
     split_after_densifications: int = 2   # coverage split trigger
+    capacity_drilldown: bool = True       # False: site-level analysis only —
+                                          # stuck capacity claims never spawn
+                                          # per-cell children (use when the
+                                          # data source has no per-cell PM)
     drilldown_after_rounds: int = 2       # capacity drill-down trigger
     cluster_sep_cells: float = 1.5        # pass/fail centroid separation (in
                                           # evidence-cell units) counted as clustered

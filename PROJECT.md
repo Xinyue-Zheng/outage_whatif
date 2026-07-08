@@ -133,6 +133,7 @@ bias (documented): only chosen rows reconcile.
 | `z` | 1.96 | no | Wilson score |
 | `evidence_cell_m` | 300 | no | effective-evidence cells; all coverage/robustness statistics count cells, never raw points |
 | `escalation_mode` | `worst_case` | no (Config) | `weighted` is reserved, not implemented |
+| `capacity_drilldown` | `True` default; **`False` for site-level real-data runs** | no (Config) | False: stuck capacity claims never spawn per-cell children (data source has no per-cell PM); site-level two-tier adjudication unaffected |
 
 ## 6. Data & evaluation
 
