@@ -42,6 +42,18 @@ class Policy:
     # [POLICY] calibration: max false-pass rate allowed for the hourly
     # support-zone edge
     calib_false_pass_max: float = 0.05
+    # [POLICY] comparable-days matching for per-hour capacity evidence:
+    # k matched occurrences of the analysis hour (same clock-hour AND same
+    # weekday, most recent k weeks; holiday outages match holiday-class
+    # days instead; days on the known-outage list are excluded).
+    # With k=4 the 15-minute tier sees 4k=16 bins, so cap15_refute_frac=0.10
+    # refutes at >1.6 bins, i.e. >= 2 spiking bins of 16 — one isolated
+    # spike is forgiven, two are not (documented sensible mapping).
+    comparable_days_k: int = 4
+    # [POLICY] default analysis_hour selection when the ticket omits it:
+    # busiest hour of the window per the target's held historical profile,
+    # else the window midpoint.  Which rule fired is recorded in the report.
+    analysis_hour_default_rule: str = "busiest_profile_else_midpoint"
 
 
 @dataclass(frozen=True)
@@ -109,6 +121,8 @@ class Config:
     )
     # months considered "summer season" for seasonal-settlement flags
     summer_months: tuple = (6, 7, 8)
+    # ISO dates with known outages — excluded from comparable-day matching
+    known_outage_dates: tuple = ()
 
     # ---------------- policy section ----------------
     policy: Policy = field(default_factory=Policy)

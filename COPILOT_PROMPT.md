@@ -1,5 +1,14 @@
 # Prompt for Copilot — adapt outage_whatif to real data (fill the blanks, then paste)
 
+NOTE: the initial analysis boundary is now a fixed 30km x 30km square
+centered on the target (already implemented) — this supersedes the
+"R0 = 0.75 x median 6-NN distance" circle in any spec document. Do not
+restore the circle. The square's size is `static_area_km` in config.
+NOTE: per-hour analysis is already implemented — one run = one
+(ticket, analysis_hour) pair; capacity PM is queried as k=4 matched
+occurrences of the analysis hour via `DataProvider.query_pm_matched`
+(default implementation loops `query_pm`, so FileProvider gets it free).
+
 Repo root: `<ROOT>` — the python package is `<ROOT>/outage_whatif`.
 Tickets CSV: `<CASES_CSV_PATH>` (columns: enodeb, start time, end time; exact names: `<COLUMN_NAMES>`)
 KPI query script: `<KPI_SCRIPT_PATH>` — one run fetches ALL KPI metrics
@@ -22,8 +31,9 @@ steps in order.
 Write `scripts/tickets_from_csv.py`: read `<CASES_CSV_PATH>`, emit one YAML
 per row into `outage_whatif/cases/` with `name`, `kind: blind`, `seed`
 (row index), `budget: <BUDGET>`, `outage_start`/`outage_end` (ISO),
-`target_site` = enodeb. No `sim:` block (that is simulator-only). Delete
-the old synthetic caseNN yamls.
+`target_site` = enodeb, and optional `analysis_hour` (clock-hour inside
+the window; omit to let the [POLICY] default rule pick it). No `sim:`
+block (that is simulator-only). Delete the old synthetic caseNN yamls.
 
 ## 2. Static 30km x 30km start area
 
@@ -43,7 +53,7 @@ Create `outage_whatif/provider/platform.py`:
 - `population_raster()` -> read `<POP_SCRIPT_PATH>` and reuse its data access/parsing; resample its output onto a `PopulationRaster` grid (see `geometry/raster.py` for the expected shape) covering the 30km square
 - `query_coverage(points)` -> `([PointCoverage], price)`: for each (x, y) locate the 1km tile JSON, load it (cache loaded tiles in a dict), pick the nearest 10m cube, map its fields to `serving=(cell, rsrp)` + `backups=[(cell, rsrp)]`
 - `query_pm(entities, metric, granularity, window)` -> `({entity: PMSeries}, price)`: wrap `<KPI_SCRIPT_PATH>`. The script returns EVERY metric in one query, so run it once per (entities, granularity, window), cache the full multi-metric result in a dict, and serve later calls for other metrics of the same key from the cache (no re-run; price each served call via `quote` as usual). Map script columns to rrc_conn|prb_util|throughput|volume; granularity hourly|15min
-- `buy_profile(site, kind)` -> `(Profile, price)`: 24-entry hourly mean/var from a historical window fetched via the same script (cached too)
+- `buy_profile(site, kind, hour=None)` -> `(Profile, price)`: 24-entry hourly mean/var from a historical window fetched via the same script (cached too); `kind="matched_hour"` profiles the given clock-hour over ~12 weeks (repeat its stat in all 24 slots, as SimProvider does)
 - `quote(kind, **params)` -> price without buying
 
 Wire into `outage_whatif/eval/harness.py::run_case` (currently hardcodes

@@ -335,7 +335,7 @@ class SimProvider(DataProvider):
                 for e in entities}
         return data, self.book.pm(granularity, len(entities), window.hours)
 
-    def buy_profile(self, site: str, kind: str):
+    def buy_profile(self, site: str, kind: str, hour: int | None = None):
         w = self.world
         if kind == "same_weekday":
             # mean/var per hour over the 8 most recent same-weekdays before a
@@ -349,6 +349,18 @@ class SimProvider(DataProvider):
             days = [datetime.fromisoformat(d) for d in hols[:3]] or [datetime(2025, 12, 25)]
             series = [[w.hourly_prb(site, d.replace(hour=h)) for d in days]
                       for h in range(24)]
+        elif kind == "matched_hour":
+            # the analysis hour's distribution over a 12-week same-weekday
+            # horizon; Profile keeps its 24-slot shape by repeating the
+            # single-hour statistic in every slot (documented judgment-
+            # firming product — consumers read one hour of it).
+            if hour is None:
+                raise ValueError("matched_hour profile requires hour=")
+            ref = datetime(2026, 6, 29)
+            days = [ref - timedelta(days=7 * i) for i in range(12)]
+            vals = [w.hourly_prb(site, d.replace(hour=int(hour)))
+                    for d in days]
+            series = [vals for _ in range(24)]
         else:
             raise ValueError(f"unknown profile kind {kind!r}")
         prof = Profile(site=site, kind=kind,
@@ -361,8 +373,16 @@ class SimProvider(DataProvider):
 
 
 # ------------------------------------------------------------------ ground truth
-def ground_truth(world: World, cfg: Config, window: Window) -> dict:
+def ground_truth(world: World, cfg: Config, window: Window,
+                 matched_windows: list | None = None) -> dict:
     """Absorption tier per true village and overall, from hidden parameters.
+
+    Per-hour semantics: when ``matched_windows`` is given (the k matched
+    one-hour windows of the analysis hour), capacity truth is the 15-minute
+    series over exactly those hours — the labels are conditional on the
+    analysis hour, mirroring the system's question.  The spike-fraction
+    formula degrades gracefully on a single hour (max(len, 1) guard; 4 bins
+    minimum per hour).
 
     DESIGN-GAP: ground truth uses the same necessary-condition semantics as
     the claim system but with perfect information (dense sampling, full
@@ -406,11 +426,14 @@ def ground_truth(world: World, cfg: Config, window: Window) -> dict:
         major = sorted(s for s, sh in shares.items() if sh >= pol.sigma)
         top_share = max(shares.values()) if shares else 0.0
 
-        # capacity truth: full 15-minute series over the outage window
+        # capacity truth: full 15-minute series over the matched analysis
+        # hours (or the whole window when no analysis hour was selected)
         cap_bad = []
+        cap_wins = matched_windows or [window]
         for s in major:
-            ser = world.pm_series(s, "prb_util", "15min", window)
-            vals = ser.values()
+            vals = [x for w2 in cap_wins
+                    for x in world.pm_series(s, "prb_util", "15min",
+                                             w2).values()]
             frac = sum(x >= pol.pi_hi for x in vals) / max(len(vals), 1)
             if frac > pol.cap15_refute_frac:
                 cap_bad.append(s)

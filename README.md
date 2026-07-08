@@ -15,6 +15,30 @@ three-valued claims (supported / refuted / undecided):
 - **integrity** — the ring outside the analysis boundary holds essentially no
   footprint points (refutation forces boundary expansion).
 
+**Per-hour analysis.** The ticket keeps its full multi-hour outage window,
+but one run answers a conditional question: "IF the outage's effect is
+evaluated at `analysis_hour` (one clock-hour inside the window), can the
+neighbors absorb the target's users?"  One run = one (case, analysis_hour)
+pair; the hour goes into the run ID (`caseNN_h17_rule-rule`).  Capacity
+evidence is the k=4 matched occurrences of that hour on comparable days
+(same clock-hour + weekday, holiday-class matching for holiday outages,
+known outages excluded) — the hourly tier adjudicates the mean of the k
+values, the 15-minute tier the spike fraction over the 4k=16 bins (>=2
+spiking bins refute at the default 0.10 threshold).  Coverage, robustness,
+and integrity are hour-invariant (radio geometry) and unchanged.  An
+omitted `analysis_hour` triggers the [POLICY] default rule (busiest window
+hour per a held target profile, else the window midpoint), and the report
+flags which rule fired.
+
+**Boundary note (supersedes the R0 circle).** With `static_area_km > 0`
+the initial analysis boundary is a fixed square (side = that many km,
+exact square containment, centered on the target) — this supersedes the
+"R0 = 0.75 x median 6-NN distance" circle wherever older documents mention
+it.  In static mode there is no integrity ring, no integrity claims, and
+no boundary expansion (the area is definitionally complete); the circle +
+expansion machinery remains the default when `static_area_km = 0`.  The
+square's size is a config constant.
+
 Everything enumerable is deterministic code. Exactly one judgment is
 delegated to LLM agents: **the prior likelihood of what a query will return
 before it is run** (Agent 1 grades ticketed items; Agent 2 predicts outcome
@@ -106,6 +130,12 @@ All marked `# DESIGN-GAP:` in code:
 
 - `provider/pricing.py` — coverage's "super-linear in area × density" is
   realized as `base · n_points^1.15` (points proxy area×density).
+  Per-hour budget ratio (documented per Section 5 of the change request):
+  with k=4 matched hours, hourly PM costs 3.2 and 15-minute PM 12.8 vs
+  ~3.5 for the smallest coverage probe and ~17.4 for a 12-cell
+  densification — PM is cheaper than under whole-window pricing (6.4/25.6)
+  but the same order of magnitude as coverage, so case budgets B were NOT
+  rebalanced.
 - `planning/sampling.py` — "allocation proportional to population" is one
   evidence cell per P0/8 of population (min 4; ≥P0 gets the computed
   decide-in-one-round count, 35 at θ=0.9, z=1.96).

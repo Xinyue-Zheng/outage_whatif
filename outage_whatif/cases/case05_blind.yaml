@@ -12,3 +12,4 @@ sim:
   spikiness: mixed
   holiday_factor: 1.3
   seasonal: true
+analysis_hour: 10   # off-peak selection (window trough)

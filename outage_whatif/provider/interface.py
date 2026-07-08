@@ -58,6 +58,9 @@ class Profile:
 class Window:
     start: datetime
     end: datetime
+    # clock-hour within [start, end) that this run's analysis is conditional
+    # on; None until the case resolves it (see loop/case.py)
+    analysis_hour: int | None = None
 
     @property
     def hours(self) -> float:
@@ -89,9 +92,28 @@ class DataProvider(abc.ABC):
                  window: Window) -> tuple[dict, float]:
         """-> ({entity: PMSeries}, charged price)."""
 
+    def query_pm_matched(self, entities: list, metric: str, granularity: str,
+                         windows: list) -> tuple[dict, float]:
+        """One capacity query over the k matched one-hour windows -> one
+        concatenated series per entity.  Default: query each window and
+        concatenate; the PM price formula is linear in hours, so the total
+        equals quoting the k matched hours at once."""
+        merged = {e: PMSeries(entity=e, metric=metric,
+                              granularity=granularity, samples=[])
+                  for e in entities}
+        total = 0.0
+        for w in windows:
+            data, charged = self.query_pm(entities, metric, granularity, w)
+            total += charged
+            for e, series in data.items():
+                merged[e].samples.extend(series.samples)
+        return merged, round(total, 2)
+
     @abc.abstractmethod
-    def buy_profile(self, site: str, kind: str) -> tuple[Profile, float]:
-        ...
+    def buy_profile(self, site: str, kind: str,
+                    hour: int | None = None) -> tuple[Profile, float]:
+        """kind: same_weekday | holiday_last_year | matched_hour (the
+        latter requires ``hour`` — the analysis hour it profiles)."""
 
     @abc.abstractmethod
     def quote(self, kind: str, **params) -> float:

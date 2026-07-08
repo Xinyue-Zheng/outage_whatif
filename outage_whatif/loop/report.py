@@ -27,6 +27,25 @@ def render_report(runner, verdict, result) -> str:
       f"({runner.spec.calendar_flags(cfg)['weekday']}, "
       f"{runner.spec.calendar_flags(cfg)['day_type']})")
     a("")
+    h = runner.analysis_hour
+    a(f"## Conditionality of this verdict")
+    a(f"**This run assessed analysis hour {h:02d}:00.** "
+      f"The verdict holds for that hour only. Other hours of the ticket "
+      f"window ({runner.spec.window.start.isoformat()} to "
+      f"{runner.spec.window.end.isoformat()}) were not verified in this "
+      f"run.")
+    rule = runner.spec.analysis_hour_rule
+    if rule.startswith("[POLICY]"):
+        a(f"- **[POLICY] applied** — analysis_hour was not specified by the "
+          f"ticket; selected by the default rule: "
+          f"{rule.removeprefix('[POLICY] default rule: ')}.")
+    else:
+        a(f"- analysis_hour selection: {rule}.")
+    a(f"- Capacity evidence basis: k={cfg.policy.comparable_days_k} matched "
+      f"occurrences of this hour on comparable days "
+      f"(same clock-hour and weekday / holiday class; known outages "
+      f"excluded).")
+    a("")
     a("## Overall verdict")
     a(f"**{verdict.overall}**"
       + (" — RUN BLOCKED" if verdict.blocked else ""))

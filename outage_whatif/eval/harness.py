@@ -74,10 +74,28 @@ def load_cases(cases_dir: Path = CASES_DIR) -> list:
     return [CaseSpec.load(p) for p in sorted(cases_dir.glob("case*.yaml"))]
 
 
+def select_eval_hour(spec: CaseSpec, cfg: Config = CFG) -> int:
+    """Evaluation-side analysis-hour selection: the busiest hour of the
+    ticket's actual window (simulator diurnal profile) unless the case file
+    specifies one.  Idempotent."""
+    if spec.analysis_hour is None:
+        from ..planning.comparable import window_hours
+        from ..provider.simulator import DIURNAL
+        spec.analysis_hour = max(window_hours(spec.window),
+                                 key=lambda h: DIURNAL[h])
+        spec.analysis_hour_rule = ("eval selection: busiest hour of the "
+                                   "ticket window (diurnal profile)")
+    return spec.analysis_hour
+
+
 def run_case(spec: CaseSpec, arm: str, cfg: Config = CFG, calib=None,
              llm_client=None, run_dir: Path | None = None):
     """arm: '<seat1>/<seat2>' with each in {rule, zonedist, llm}.
-    Returns (runner, RunResult)."""
+    One run = one (case, analysis_hour) pair.  Returns (runner, RunResult).
+    EXTENSION POINT (hour sweep): a future "sweep all hours of the ticket
+    window" would iterate (case, analysis_hour) pairs right here — call
+    run_case once per hour with spec.analysis_hour set.  Not implemented."""
+    select_eval_hour(spec, cfg)
     s1_flag, s2_flag = arm.split("/")
     world = generate_world(spec.sim, spec.seed, cfg)
     runner = CaseRunner(spec, SimProvider(world),
@@ -173,13 +191,19 @@ def run_experiments(arms: list | None = None, cfg: Config = CFG,
     records = []
 
     def _one(spec, arm):
-        run_dir = runs_dir / f"{spec.name}_{arm.replace('/', '-')}"
+        h = select_eval_hour(spec, cfg)
+        # analysis_hour is part of the run ID: several hours of the same
+        # ticket produce distinct artifacts
+        run_dir = runs_dir / f"{spec.name}_h{h:02d}_{arm.replace('/', '-')}"
         runner, result = run_case(spec, arm, cfg, calib, run_dir=run_dir)
         world = generate_world(spec.sim, spec.seed, cfg)
-        gt = ground_truth(world, cfg, spec.window)
+        from ..planning.comparable import matched_hour_windows
+        gt = ground_truth(world, cfg, spec.window,
+                          matched_hour_windows(spec.window, h, cfg))
         m = case_metrics(runner, result, gt)
-        records.append({"case": spec.name, "kind": spec.kind, "arm": arm, **m})
-        print(f"  {spec.name} [{arm}] sys={m['overall_sys']!r} "
+        records.append({"case": spec.name, "kind": spec.kind, "arm": arm,
+                        "analysis_hour": h, **m})
+        print(f"  {spec.name} h{h:02d} [{arm}] sys={m['overall_sys']!r} "
               f"gt={m['overall_gt']!r} tier_acc={m['tier_acc']} "
               f"spend={m['spend']} rounds={m['rounds']}")
 
@@ -194,12 +218,15 @@ def run_experiments(arms: list | None = None, cfg: Config = CFG,
 
     print("=== oracle (unlimited budget) ===")
     for spec in cases:
+        h = select_eval_hour(spec, cfg)
         runner, result = oracle_run(spec, cfg, calib)
         world = generate_world(spec.sim, spec.seed, cfg)
-        gt = ground_truth(world, cfg, spec.window)
+        from ..planning.comparable import matched_hour_windows
+        gt = ground_truth(world, cfg, spec.window,
+                          matched_hour_windows(spec.window, h, cfg))
         m = case_metrics(runner, result, gt)
         records.append({"case": spec.name, "kind": spec.kind,
-                        "arm": "oracle", **m})
+                        "arm": "oracle", "analysis_hour": h, **m})
         print(f"  {spec.name} [oracle] sys={m['overall_sys']!r} "
               f"gt={m['overall_gt']!r} tier_acc={m['tier_acc']}")
 

@@ -91,8 +91,13 @@ def build_board(claims: ClaimSet, view, subregions: dict, background,
 def build_digest(claims: ClaimSet, view, subregions: dict, background,
                  pm, owned_profiles: dict, calendar: dict, zones: dict,
                  ledgers: dict, width_history: dict, round_no: int) -> dict:
-    """Anchor digest (code-generated)."""
+    """Anchor digest (code-generated).
+
+    Per-hour additions (agent clues ONLY — never used in deterministic
+    adjudication): busy_hour_flag, matched_hour_spread, and the analysis
+    hour's calendar fields (which arrive via ``calendar``)."""
     outage_hours = calendar.get("_hour_range", (10, 18))
+    analysis_hour = calendar.get("analysis_hour")
     neighbors = {}
     for c in claims.by_type(CAPACITY):
         if c.parent is not None:
@@ -103,12 +108,19 @@ def build_digest(claims: ClaimSet, view, subregions: dict, background,
         spike = (round(sum(v >= zones["pi_hi"] for v in q15) / len(q15), 3)
                  if q15 else None)
         prof_means = {}
+        daily_profile = None                 # a held 24-hour profile, if any
         for (s, kind), prof in owned_profiles.items():
             if s != site:
                 continue
-            hrs = range(outage_hours[0], outage_hours[1])
-            prof_means[kind] = round(
-                sum(prof.hourly_mean[h] for h in hrs) / max(len(list(hrs)), 1), 3)
+            if analysis_hour is not None:
+                prof_means[kind] = round(prof.hourly_mean[analysis_hour], 3)
+            else:
+                hrs = range(outage_hours[0], outage_hours[1])
+                prof_means[kind] = round(
+                    sum(prof.hourly_mean[h] for h in hrs)
+                    / max(len(list(hrs)), 1), 3)
+            if kind in ("same_weekday", "holiday_last_year"):
+                daily_profile = prof
         if measured is not None:
             anchor, src = round(measured, 3), "in-case measurement"
         elif calendar.get("holiday") and "holiday_last_year" in prof_means:
@@ -117,12 +129,29 @@ def build_digest(claims: ClaimSet, view, subregions: dict, background,
             anchor, src = prof_means["same_weekday"], "same-weekday profile"
         else:
             anchor, src = None, "none (no history purchased, nothing measured)"
+        # busy_hour_flag: is the analysis hour among the site's top-quartile
+        # daily-profile hours?  Only computable from a held 24-hour profile.
+        busy_flag = None
+        if analysis_hour is not None and daily_profile is not None:
+            top_q = sorted(range(24), key=lambda h: -daily_profile.hourly_mean[h])[:6]
+            busy_flag = analysis_hour in top_q
+        # matched_hour_spread: min/max/std across the k matched hourly
+        # values held for this site (agent clue for day-to-day volatility)
+        spread = None
+        vals = pm.hourly.get(site)
+        if vals and len(vals) > 1:
+            mu = sum(vals) / len(vals)
+            std = (sum((v - mu) ** 2 for v in vals) / len(vals)) ** 0.5
+            spread = {"min": round(min(vals), 3), "max": round(max(vals), 3),
+                      "std": round(std, 3)}
         neighbors[site] = {
             "anchor_mean": anchor, "anchor_source": src,
             "measured_hourly_mean": (round(measured, 3)
                                      if measured is not None else None),
             "measured_spike_frac": spike,
             "profile_window_means": prof_means,
+            "busy_hour_flag": busy_flag,
+            "matched_hour_spread": spread,
             "serves": c.detail.get("serves", []),
         }
 
@@ -181,6 +210,8 @@ def render_digest(digest: dict) -> str:
                      f"measured_hourly_mean={nb['measured_hourly_mean']}; "
                      f"measured_spike_frac={nb['measured_spike_frac']}; "
                      f"profiles={nb['profile_window_means']}; "
+                     f"busy_hour_flag={nb.get('busy_hour_flag')}; "
+                     f"matched_hour_spread={nb.get('matched_hour_spread')}; "
                      f"serves={nb['serves']}")
     lines.append("subregions:")
     for sid, s in sorted(digest["subregions"].items()):

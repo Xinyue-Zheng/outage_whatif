@@ -110,10 +110,14 @@ def test_menu_quartiles_buckets_and_prices():
         assert 1 <= a.quartile <= 4
         assert a.buckets, a.kind
         assert a.price > 0
-    # hourly PM carries its worst-case follow-up (the 15-min purchase)
+    # hourly PM carries its worst-case follow-up (the 15-min purchase);
+    # per-hour semantics: PM is priced over the k matched analysis hours
     pm = next(a for a in menu if a.kind == "pm_hourly")
+    k = CFG.policy.comparable_days_k
+    assert pm.price == pytest.approx(
+        prov.quote("pm", granularity="hourly", n_entities=1, hours=k))
     assert pm.followup_price == pytest.approx(
-        prov.quote("pm", granularity="15min", n_entities=1, hours=8))
+        prov.quote("pm", granularity="15min", n_entities=1, hours=k))
     assert pm.buckets == ["support_zone", "middle_zone", "refute_zone"]
     # quartile 1 exists and belongs to the cheapest action(s)
     q1 = [a for a in menu if a.quartile == 1]
@@ -157,7 +161,7 @@ def test_calibration_edge_placement():
             continue
         if (b + 1) / 10 <= tab.support_edge:
             assert r <= CFG.policy.calib_false_pass_max
-    assert tab.version.startswith("calib-v1")
+    assert tab.version.startswith("calib-v2-matched")
 
 
 def test_calibration_no_safe_edge():

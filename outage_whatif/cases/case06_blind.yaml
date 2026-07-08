@@ -10,3 +10,4 @@ sim:
   village_count: 7
   n_extra_sites: 1
   spikiness: mixed
+analysis_hour: 10   # off-peak selection (window trough)

@@ -69,6 +69,13 @@ class CaseRunner:
         self.cfg = cfg
         self.support_edge = calib.support_edge if calib else None
         self.run_dir = run_dir
+        # per-hour semantics: validate / default-select the analysis hour
+        # (init_case — an invalid explicit hour rejects the case here) and
+        # precompute the k matched one-hour windows for capacity evidence
+        from ..planning.comparable import matched_hour_windows
+        self.analysis_hour = spec.resolve_analysis_hour(cfg)
+        self.matched_windows = matched_hour_windows(
+            spec.window, self.analysis_hour, cfg)
 
         self.topology = provider.topology()
         self.target = spec.target_site or getattr(provider, "world", None).target_site
@@ -345,10 +352,12 @@ class CaseRunner:
                 if action.claim_cid in self.claims:
                     self.claims.get(action.claim_cid).densifications += 1
         elif action.kind in ("pm_hourly", "pm_15min"):
-            from ..provider.interface import Window
+            # capacity evidence = the k matched occurrences of the analysis
+            # hour on comparable days, not the whole ticket window
             p = action.params
-            data, charged = self.provider.query_pm(
-                p["entities"], p["metric"], p["granularity"], self.spec.window)
+            data, charged = self.provider.query_pm_matched(
+                p["entities"], p["metric"], p["granularity"],
+                self.matched_windows)
             for ent, series in data.items():
                 store = self.pm.hourly if p["granularity"] == "hourly" else self.pm.q15
                 store[ent] = series.values()
@@ -358,7 +367,8 @@ class CaseRunner:
                               purpose, charged, data)
         elif action.kind == "profile":
             p = action.params
-            prof, charged = self.provider.buy_profile(p["site"], p["profile_kind"])
+            prof, charged = self.provider.buy_profile(
+                p["site"], p["profile_kind"], hour=p.get("hour"))
             self.owned_profiles[(p["site"], p["profile_kind"])] = prof
             self.ledger.record(self.round_no, action.aid, "profile", charged,
                                purpose, action.claim_cid, action.signature())
@@ -394,9 +404,8 @@ class CaseRunner:
         if action.kind == "profile":
             prof = self.owned_profiles[(action.params["site"],
                                         action.params["profile_kind"])]
-            h0, h1 = self.spec.window.start.hour, self.spec.window.end.hour
-            wmean = (sum(prof.hourly_mean[h] for h in range(h0, h1))
-                     / max(h1 - h0, 1))
+            # anchor on the analysis hour (per-hour semantics)
+            wmean = prof.hourly_mean[self.analysis_hour]
             if anchor_before is None or abs(wmean - anchor_before) > 0.08:
                 return "anchor_shifts"
             return "anchor_confirms"

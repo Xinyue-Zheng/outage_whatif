@@ -84,11 +84,15 @@ def build_menu(claims: ClaimSet, view, subregions: dict, background,
     signatures already bought (duplicate queries never enter the menu);
     ``owned_profiles`` holds (site, kind) pairs."""
     acts: list[Action] = []
-    win_key = (window.start.isoformat(), window.end.isoformat())
-    hours = window.hours
+    # capacity evidence = k matched occurrences of the analysis hour on
+    # comparable days; PM price formula unchanged, hours = k matched hours
+    k_hours = cfg.policy.comparable_days_k
+    win_key = (window.start.isoformat(), window.end.isoformat(),
+               "matched", window.analysis_hour, k_hours)
 
     def pm_action(kind: str, entity: str, gran: str, cid: str) -> Action | None:
-        price = provider.quote("pm", granularity=gran, n_entities=1, hours=hours)
+        price = provider.quote("pm", granularity=gran, n_entities=1,
+                               hours=k_hours)
         a = Action(
             aid=f"R{round_no}:{kind}:{entity}", kind=kind, claim_cid=cid,
             price=price,
@@ -96,9 +100,11 @@ def build_menu(claims: ClaimSet, view, subregions: dict, background,
                     "window_key": win_key, "metric": "prb_util"},
             buckets=list(BUCKETS[kind]),
             followup_price=(provider.quote("pm", granularity="15min",
-                                           n_entities=1, hours=hours)
+                                           n_entities=1, hours=k_hours)
                             if kind == "pm_hourly" else 0.0),
-            description=f"{gran} PRB for {entity} over the outage-matched window")
+            description=f"{gran} PRB for {entity} at the analysis hour "
+                        f"({window.analysis_hour}:00) over {k_hours} "
+                        f"matched comparable days")
         return None if a.signature() in purchased else a
 
     for c in claims.open():
@@ -164,18 +170,25 @@ def build_menu(claims: ClaimSet, view, subregions: dict, background,
         if c.parent is not None or not c.alive:
             continue
         site = c.subject
-        kinds = ["same_weekday"] + (["holiday_last_year"] if is_holiday else [])
+        kinds = ["same_weekday", "matched_hour"] \
+            + (["holiday_last_year"] if is_holiday else [])
         for pk in kinds:
             if (site, pk) in owned_profiles:
                 continue
+            desc = (f"analysis-hour ({window.analysis_hour}:00) distribution "
+                    f"over a 12-week horizon for {site} "
+                    f"— judgment-firming, changes no claim directly"
+                    if pk == "matched_hour" else
+                    f"historical profile ({pk}) for {site} "
+                    f"— judgment-firming, changes no claim directly")
             acts.append(Action(
                 aid=f"R{round_no}:profile:{site}:{pk}", kind="profile",
                 claim_cid=c.cid,
                 price=provider.quote("profile", profile_kind=pk),
-                params={"site": site, "profile_kind": pk},
+                params={"site": site, "profile_kind": pk,
+                        "hour": window.analysis_hour},
                 buckets=list(BUCKETS["profile"]),
-                description=f"historical profile ({pk}) for {site} "
-                            f"— judgment-firming, changes no claim directly"))
+                description=desc))
 
     acts = [a for a in acts if a.signature() not in purchased]
     _assign_quartiles(acts)

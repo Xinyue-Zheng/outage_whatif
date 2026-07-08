@@ -43,28 +43,34 @@ def build_calibration_table(worlds: dict, cfg: Config,
                             start: str = "2026-05-04") -> CalibrationTable:
     """worlds: {case_name: World} for the calibration cases.
 
-    For every site-hour in the calibration span, pair the hourly mean with
-    whether its 15-minute bins contain a spike that the 15-minute tier
-    would count against pi_hi.  A false pass = hourly mean in a candidate
-    support bucket while the hour spikes.
+    Matched-hour samples (per-hour semantics): one sample = one
+    (site, anchor-day, clock-hour) slot, whose hourly-mean input is the
+    MEAN of the k matched weekly occurrences of that hour (same weekday,
+    k = cfg.policy.comparable_days_k) — exactly what the hourly tier now
+    adjudicates — paired with whether the 4k matched 15-minute bins would
+    refute at the 15-minute tier (fraction >= pi_hi above
+    cap15_refute_frac).  A false pass = matched-hour mean in a candidate
+    support bucket while the matched bins refute.  Table format unchanged.
     """
     pol = cfg.policy
+    k = pol.comparable_days_k
     counts = [0] * N_BUCKETS
     spikes = [0] * N_BUCKETS
     t0 = datetime.fromisoformat(start)
     for name, w in sorted(worlds.items()):
         for site in sorted(w.sites):
-            for d in range(days):
+            for d in range(0, days, 7):       # one anchor day per week
                 day = t0 + timedelta(days=d)
                 for h in range(24):
-                    ts = day.replace(hour=h)
-                    m = w.hourly_prb(site, ts)
+                    stamps = [day.replace(hour=h) - timedelta(weeks=i)
+                              for i in range(k)]
+                    m = sum(w.hourly_prb(site, ts) for ts in stamps) / k
                     b = min(int(m * N_BUCKETS), N_BUCKETS - 1)
-                    spiked = any(
-                        w.q15_prb(site, ts + timedelta(minutes=15 * q)) >= pol.pi_hi
-                        for q in range(4))
+                    bins = [w.q15_prb(site, ts + timedelta(minutes=15 * q))
+                            for ts in stamps for q in range(4)]
+                    frac = sum(v >= pol.pi_hi for v in bins) / len(bins)
                     counts[b] += 1
-                    spikes[b] += int(spiked)
+                    spikes[b] += int(frac > pol.cap15_refute_frac)
 
     rates = [spikes[b] / counts[b] if counts[b] else None
              for b in range(N_BUCKETS)]
@@ -85,7 +91,7 @@ def build_calibration_table(worlds: dict, cfg: Config,
         edge = min(edge, pol.pi_hi)
 
     return CalibrationTable(
-        version=f"calib-v1-{days}d-{len(worlds)}cases",
+        version=f"calib-v2-matched-{days}d-{len(worlds)}cases",
         support_edge=edge,
         bucket_rates=[None if r is None else round(r, 4) for r in rates],
         bucket_counts=counts,

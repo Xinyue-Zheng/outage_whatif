@@ -33,9 +33,13 @@ Follow this protocol EXACTLY:
      no anchor -> mid);
 (iv) clue scan — you may adjust a grade by AT MOST ONE STEP, and only by
      naming its clue in the "clue" field: a holiday flag, an in-case
-     measurement diverging from history, a seasonal-settlement marker, or
-     your own recent misses on similar judgments (see the agent ledger in the
-     digest).  If no clue was found, set clue to null and declare
+     measurement diverging from history, a seasonal-settlement marker,
+     a high day-to-day spread at the matched hour (matched_hour_spread),
+     a busy-hour analysis (busy_hour_flag true for that neighbor), a
+     holiday history mismatch (the analysis hour's holiday class differs
+     from the profile the anchor came from), or your own recent misses on
+     similar judgments (see the agent ledger in the digest).  If no clue
+     was found, set clue to null and declare
      "no_clue_found_anchor_followed": true;
 (v) emit the JSON.
 """

@@ -10,3 +10,4 @@ sim:
   village_count: 7
   n_extra_sites: 4
   spikiness: low
+analysis_hour: 17   # busy-hour selection (window peak)

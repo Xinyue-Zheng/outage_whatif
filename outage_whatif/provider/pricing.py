@@ -24,7 +24,8 @@ class PriceBook:
     pm_gran_factor: dict = field(default_factory=lambda: {
         "hourly": 1.0, "15min": 4.0})
     profile_flat: dict = field(default_factory=lambda: {
-        "same_weekday": 5.0, "holiday_last_year": 6.0})
+        "same_weekday": 5.0, "holiday_last_year": 6.0,
+        "matched_hour": 5.5})
 
     def coverage(self, n_points: int) -> float:
         if n_points <= 0:
