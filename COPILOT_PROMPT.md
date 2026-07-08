@@ -17,9 +17,11 @@ Tickets CSV: `<CASES_CSV_PATH>` (columns: enodeb, start time, end time; exact na
 KPI query script: `<KPI_SCRIPT_PATH>` — one run fetches ALL KPI metrics
 together for the requested cells/window (CSV output). There are NO
 pre-downloaded KPI files; every KPI read goes through this script.
-Coverage JSONs dir: `<COVERAGE_JSON_DIR>` — whole area is a static 30km x 30km
-grid sampled every 1km: each JSON file = one 1km x 1km tile holding its
-10m x 10m cubes' coverage. Tile file naming: `<TILE_NAMING_RULE>`.
+Coverage query script: `<COVERAGE_SCRIPT_PATH>` — there is NO local
+coverage storage; each query downloads one JSON per requested tile. The
+area is a static 30km x 30km grid sampled every 1km: one JSON = one
+1km x 1km tile holding its 10m x 10m cubes' coverage. Tile
+naming/addressing: `<TILE_NAMING_RULE>`.
 Population read script: `<POP_SCRIPT_PATH>`
 Ollama server: `<OLLAMA_HOST>` , model: `<MODEL>`
 
@@ -54,7 +56,7 @@ Create `outage_whatif/provider/platform.py`:
 
 - `topology()` -> `Topology(sites, roster, azimuths)` from `<TOPOLOGY_SOURCE>`
 - `population_raster()` -> read `<POP_SCRIPT_PATH>` and reuse its data access/parsing; resample its output onto a `PopulationRaster` grid (see `geometry/raster.py` for the expected shape) covering the 30km square
-- `query_coverage(points)` -> `([PointCoverage], price)`: for each (x, y) locate the 1km tile JSON, load it (cache loaded tiles in a dict), pick the nearest 10m cube, map its fields to `serving=(cell, rsrp)` + `backups=[(cell, rsrp)]`
+- `query_coverage(points)` -> `([PointCoverage], price)`: for each (x, y) locate its 1km tile, download that tile's JSON via `<COVERAGE_SCRIPT_PATH>` ONLY if not already cached this run (cache downloaded tiles in a dict — never re-download), pick the nearest 10m cube, map its fields to `serving=(cell, rsrp)` + `backups=[(cell, rsrp)]`
 - `query_pm(entities, metric, granularity, window)` -> `({entity: PMSeries}, price)`: wrap `<KPI_SCRIPT_PATH>`. The script returns EVERY metric in one query, so run it once per (entities, granularity, window), cache the full multi-metric result in a dict, and serve later calls for other metrics of the same key from the cache (no re-run; price each served call via `quote` as usual). Map script columns to rrc_conn|prb_util|throughput|volume; granularity hourly|15min
 - `buy_profile(site, kind, hour=None)` -> `(Profile, price)`: 24-entry hourly mean/var from a historical window fetched via the same script (cached too); `kind="matched_hour"` profiles the given clock-hour over ~12 weeks (repeat its stat in all 24 slots, as SimProvider does)
 - `quote(kind, **params)` -> price without buying
