@@ -102,6 +102,22 @@ def test_budget_exhaustion_stops_and_degrades(tmp_path):
     assert result.unverified_assumptions
 
 
+def test_report_states_conditionality_verbatim():
+    """case01 omits analysis_hour -> the [POLICY] default fires and the
+    report must carry the mandatory conditionality block."""
+    runner = _runner(case="case01.yaml")
+    result = runner.run(rounds=4)
+    h = runner.analysis_hour
+    md = result.report_md
+    assert f"This run assessed analysis hour {h:02d}:00." in md
+    assert "The verdict holds for that hour only." in md
+    assert "were not verified in this run" in md
+    assert "[POLICY] applied" in md            # default rule fired
+    # Stage D additions: demand closure + briefing history
+    assert "## Demand closure" in md and "Residual bound" in md
+    assert "## Briefing history" in md and "ROUND 1" in md
+
+
 def test_declare_done_requires_empty_audit():
     """The demo client declares done only when nothing is left; on a fresh
     case the gate refuses an early declare_done."""

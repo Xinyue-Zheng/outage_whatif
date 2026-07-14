@@ -1,79 +1,73 @@
-# outage_whatif — budget-constrained, agent-driven what-if analysis of cell-site outages
+# outage_whatif — budget-constrained investigator for cell-site outage what-ifs
 
-> New here or switching workspaces? **PROJECT.md** is the background and
-> alignment document (what/why, per-hour semantics, the two workspaces,
-> current state, conventions). **COPILOT_PROMPT.md** is the fill-in task
-> prompt for the real-data adaptation workspace.
+> **PROJECT.md** is the canonical as-implemented description (architecture,
+> parameters, drift notes). **COPILOT_PROMPT.md** is the fill-in task prompt
+> for the real-data adaptation (FileProvider).
 
-A target eNodeB will be switched off during a known window. Per populated
-subregion and overall, the system decides **qualitatively** whether the
-neighboring sites can absorb the target's users. Every piece of data costs
-money from a finite budget B; each round decides what the next unit of budget
-buys. The system verifies **necessary conditions** for absorption as
+A target eNodeB will be switched off during a ticketed window. Assessed at
+one `analysis_hour` inside that window, can the neighboring sites absorb the
+target's users? The answer — per demand object and overall — is qualitative:
+`fully absorbable` / `locally degraded` / `severe hole exists` /
+`undecided/qualified`. The system verifies **necessary conditions** as
 three-valued claims (supported / refuted / undecided):
 
 - **coverage** — footprint evidence cells have a qualifying best alternative
   (Wilson interval vs θ; exact census once every cell is sampled),
 - **capacity** — "no capacity obstacle found" per genuine exit neighbor
   (two-tier: calibrated hourly support zone, definitive 15-minute tier),
-- **robustness** — best alternatives not concentrated in one owner (vs κ),
-- **integrity** — the ring outside the analysis boundary holds essentially no
-  footprint points (refutation forces boundary expansion).
+- **robustness** — best alternatives not concentrated in one owner (vs κ).
 
-**Per-hour analysis.** The ticket keeps its full multi-hour outage window,
-but one run answers a conditional question: "IF the outage's effect is
-evaluated at `analysis_hour` (one clock-hour inside the window), can the
-neighbors absorb the target's users?"  One run = one (case, analysis_hour)
-pair; the hour goes into the run ID (`caseNN_h17_rule-rule`).  Capacity
+**Per-hour analysis.** One run = one (case, analysis_hour) pair; capacity
 evidence is the k=4 matched occurrences of that hour on comparable days
-(same clock-hour + weekday, holiday-class matching for holiday outages,
-known outages excluded) — the hourly tier adjudicates the mean of the k
-values, the 15-minute tier the spike fraction over the 4k=16 bins (>=2
-spiking bins refute at the default 0.10 threshold).  Coverage, robustness,
-and integrity are hour-invariant (radio geometry) and unchanged.  An
-omitted `analysis_hour` triggers the [POLICY] default rule (busiest window
-hour per a held target profile, else the window midpoint), and the report
-flags which rule fired.
+(same clock-hour + weekday, holiday-class matching, known outages excluded).
+An omitted `analysis_hour` triggers the [POLICY] default rule and the report
+flags it.
 
-**Boundary note (supersedes the R0 circle).** With `static_area_km > 0`
-the initial analysis boundary is a fixed square (side = that many km,
-exact square containment, centered on the target) — this supersedes the
-"R0 = 0.75 x median 6-NN distance" circle wherever older documents mention
-it.  In static mode there is no integrity ring, no integrity claims, and
-no boundary expansion (the area is definitionally complete); the circle +
-expansion machinery remains the default when `static_area_km = 0`.  The
-square's size is a config constant.
+Every data item is priced against a finite budget B. One **investigator**
+agent (a single LLM seat) decides each round what to buy; deterministic code
+does everything else — adjudication, pricing, the flip test, the audit, the
+verdict, and the **spend gate**.
 
-Everything enumerable is deterministic code. Exactly one judgment is
-delegated to LLM agents: **the prior likelihood of what a query will return
-before it is run** (Agent 1 grades ticketed items; Agent 2 predicts outcome
-buckets when selecting an action). Both seats can be swapped for rule
-baselines — whether the agents earn their keep is an experimental question.
-
-## Layout
+## The round
 
 ```
-outage_whatif/
-  config.py        # single source of truth; [POLICY] block clearly isolated
-  geometry/        # rasters, 8-connected clustering, 300 m evidence cells,
-                   # Wilson machinery, boundary sectors/ring, footprint rules
-  claims/          # claim model, deterministic adjudication, lifecycle
-                   # (spawn / kill / split / drill-down)
-  verdict/         # verdict function, flip test, dependency table
-  planning/        # Track-1/Track-2 sampling, action menu + price quartiles,
-                   # calibration table (support-zone edge, <=5% false pass)
-  agents/          # LLM seats + schemas + validators, rule baselines,
-                   # purchase & per-agent ledgers, two-miss fuse
-  provider/        # DataProvider interface, price function, simulator
-  loop/            # round loop, guardrail, mechanical checks, stop
-                   # conditions, Markdown report
-  eval/            # swap harness, oracle, metrics, divergence log, summary
-  cases/           # 10 scenario files (2 calibration, 8 blind)
-                   # + calibration_table.json (versioned artifact)
-  runs/            # per-run artifacts: report.md, ledger.json,
-                   # divergence.json, events.log, summary.md, metrics.json
-  tests/           # 61 tests; all run without any API key
+advance -> adjudicate_lifecycle -> assess -> stop_check -> briefing
+       -> investigator (JSON tool loop) -> gate -> execute -> reconcile
 ```
+
+- **Demand objects.** The population raster only *pins candidates*: raster
+  settlements intersecting the candidate zone (closer to the target than to
+  its second-nearest site, + margin) start as *hypothesized* objects.
+  Confirmation is code (a purchased point inside shows the target above
+  τ_acc) and auto-opens one COV + one ROB claim; dismissal is
+  instrument-verified (≥ `dismiss_min_units` sampled units inside, none
+  showing the target). Demand the raster misses is caught by the **cell
+  localization book**: per target cell, busy-window traffic T[c], status
+  (accounted / unaccounted / unknown), empirical direction, and a residual
+  map pointing at sampled-but-unmapped demand — registrable via
+  `RegisterObject(provenance="residual")`. Sums and set intersections only;
+  traffic is never split.
+- **Audit.** A deterministic gap list (demand ledger absent, heavy
+  unlocalized cells, hypothesized objects, open claims above the importance
+  floor, uninvestigated residual). Round zero is naturally non-empty — that
+  is what makes exploration fundable. There is no initial-sampling phase;
+  the ~8 suggested random probes are a purchase, never auto-executed.
+- **Investigator.** Plain-JSON protocol over `LLMClient` (Ollama
+  tool-calling is unreliable): each response is exactly one JSON object,
+  either a read-only tool call (max 8/round) or a **committing action**
+  (Purchase / RegisterObject / DismissRequest / SplitObject / DrillDown /
+  AcceptDefault / DeclareDone). At least one `notebook_write` must precede
+  a commit; a malformed response gets one re-prompt, then the round is
+  skipped with a logged incident — there is **no fallback seat**.
+- **Gate.** Ordered checks: schema; price ≤ remaining budget; target exists
+  and open; claim targets must hold a **flip ticket**; predicted bucket in
+  the kind's outcome space; citation **verbatim** in the briefing + this
+  turn's tool outputs; price within the confidence cap (low 2% / mid 10% /
+  high 100% of the initial budget). Denials return the exact failing check
+  and feed the single retry.
+- **Reconciliation.** Predicted vs actual outcome bucket, per-grade hit
+  rates shown back in the briefing (bookkeeping only — nothing routes
+  decisions away from the agent).
 
 ## Setup & run
 
@@ -81,53 +75,44 @@ outage_whatif/
 uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
-.venv/bin/python -m pytest outage_whatif/tests -q      # 61 tests, no LLM needed
-.venv/bin/python -m outage_whatif.eval.calibrate       # build calibration artifact
-.venv/bin/python -m outage_whatif.eval.harness         # run experiment arms
+.venv/bin/python -m pytest outage_whatif/tests -q          # 72 tests, no LLM needed
+.venv/bin/python -m outage_whatif.planning.calibration     # calibration artifact
+.venv/bin/python -m outage_whatif.run_case cases/case03.yaml --rounds 8 --pause
 ```
 
-The harness runs `rule/rule` and the `zonedist/rule` ablation on all 10
-cases plus an unlimited-budget oracle, and writes `outage_whatif/runs/summary.md`.
-If an Ollama server with the configured model (`Config.llm_model`, default
-`llama3.1`) is reachable — `$OLLAMA_HOST` or `http://localhost:11434` — it
-also runs `llm/llm` (via LangChain's `langchain-ollama`, strict JSON via
-Ollama's `format` = JSON schema) on all 10 cases and the mixed ablations
-(`llm/rule`, `rule/llm`) on the 2 calibration cases.
-A single arm: `.venv/bin/python -m outage_whatif.eval.harness llm/llm`.
+The demo command runs eight investigation rounds end-to-end on the
+simulator with the deterministic demo transport (no Ollama needed),
+printing each round's briefing, tool calls, committing action, gate result,
+and state deltas; `--pause` waits for Enter between rounds. `--llm ollama`
+uses the real model (`Config.llm_model`, default `llama3.1`, via
+LangChain's `langchain-ollama`, strict JSON via Ollama's `format`).
+Artifacts land in `outage_whatif/runs/<case>/`: `trace.jsonl`,
+`ledger.json`, `notebook.md`, `events.log`, `report.md` (conditionality
+block, demand-closure statement with the residual bound, briefing history).
 
-## The round loop (one round)
+## Layout
 
-1. Code produces the agents' entire (closed-book) world: **claim board**,
-   **dependency table**, **anchor digest**.
-2. Stop check: all tickets resolved + verdict stable 2 rounds; budget
-   exhausted; or no (guardrail-compliant) affordable action can flip
-   anything. On stop: buy the target's own baseline RRC last, apply
-   conservative defaults (direction: degrade, flagged
-   `unverified_assumption`), emit the report.
-3. Refuted integrity blocks the run: forced deterministic boundary
-   expansion + ring resampling; newly covered settlements get claims.
-4. **Agent 1** grades every ticketed dependency row and direct resolution
-   (verbatim citations verified; anchor-followed declarations required).
-   **Code computes the ordering** — a theorem of the stated grades.
-5. **Agent 2** picks an action among leader + 2 runners-up with predicted
-   bucket, worst-case decisiveness arithmetic (re-verified by code),
-   contingency line for every bucket, optional judgment-firming profile
-   purchase, veto with mandatory dependency-row citation.
-6. Guardrail (code): top-quartile price requires a high grade unless a
-   prerequisite was resolved cheaply. Mechanical checks replace the omitted
-   critic: duplicate-query, citation verification, contradiction lookup.
-   One retry, then the round falls back to the rule baseline (that seat only).
-7. Execute via `DataProvider`, pay, re-adjudicate, run lifecycle, recompute
-   flip tests; reconcile ledgers (Agent 2 buckets immediately, Agent 1 grades
-   when the lever's query executes); two-consecutive-miss fuse routes a
-   single seat to its baseline next round. Divergences from baseline are
-   logged first-class.
-
-## Results snapshot (rule/rule, no API key)
-
-Overall-verdict accuracy 10/10 vs simulator ground truth; mean per-village
-tier accuracy ≈ 0.83 on blind cases at ≈ 45% of budget. See
-`outage_whatif/runs/summary.md`.
+```
+outage_whatif/
+  config.py        # single source of truth; [POLICY] block clearly isolated
+  geometry/        # rasters, 8-connected clustering, 300 m evidence cells,
+                   # Wilson machinery, footprint rules (line/point geometry:
+                   # reserved extension stub in evidence.py)
+  demand/          # demand objects + registry, cell localization book
+  claims/          # claim model, deterministic adjudication, lifecycle
+  verdict/         # verdict function, flip test
+  planning/        # comparable-day matching, calibration table,
+                   # point-placement helpers, suggested random probes
+  agents/          # investigator seat + protocol validators, LLM transports
+                   # (Ollama / MockLLM / demo client), ledgers
+  provider/        # DataProvider interface, price function, simulator
+  loop/            # engine, round graph, briefing, spend gate, audit, report
+  run_case.py      # the round-by-round demo CLI
+  cases/           # 10 scenario files + calibration_table.json
+  tests/           # 72 tests; all run without any LLM server
+scripts/
+  tickets_from_csv.py   # outage-ticket CSV -> case YAMLs
+```
 
 ## DESIGN-GAP list (where the spec was silent, simplest option chosen)
 
@@ -135,40 +120,19 @@ All marked `# DESIGN-GAP:` in code:
 
 - `provider/pricing.py` — coverage's "super-linear in area × density" is
   realized as `base · n_points^1.15` (points proxy area×density).
-  Per-hour budget ratio (documented per Section 5 of the change request):
-  with k=4 matched hours, hourly PM costs 3.2 and 15-minute PM 12.8 vs
-  ~3.5 for the smallest coverage probe and ~17.4 for a 12-cell
-  densification — PM is cheaper than under whole-window pricing (6.4/25.6)
-  but the same order of magnitude as coverage, so case budgets B were NOT
-  rebalanced.
-- `planning/sampling.py` — "allocation proportional to population" is one
-  evidence cell per P0/8 of population (min 4; ≥P0 gets the computed
-  decide-in-one-round count, 35 at θ=0.9, z=1.96).
-- `claims/adjudicate.py` — a subregion is "unaffected" when <30% of its
-  sampled cells are footprint (same rule as the simulator's ground truth);
-  once the census is complete the exact proportion decides against θ/κ
-  (Wilson governs only partial sampling).
-- `claims/lifecycle.py` — the capacity drill-down trigger is "stuck
-  undecided in the hourly middle zone ≥2 rounds"; the design names the
-  mechanism but not the trigger.
-- `loop/tables.py` — integrity claims carry a constant P0 stake in the
-  ordering (no stake was specified for them).
-- `agents/ledger.py` — a tripped fuse routes that seat to its baseline for
-  one round, then resets (penalty duration unspecified).
-- `config.py` — small illustrative holiday calendar.
-- `provider/simulator.py` — ground truth uses the same necessary-condition
-  semantics as the claim system with perfect information (dense census over
-  the same 300 m evidence cells), i.e. it measures whether sequential
-  querying recovered the truth, not the physical outcome of an outage.
+- `claims/adjudicate.py` — an object is "unaffected" when <30% of its
+  sampled cells are footprint; once the census is complete the exact
+  proportion decides against θ/κ (Wilson governs only partial sampling).
+- `config.py` — small illustrative holiday calendar; illustrative
+  `T_material` / `T_severe` / `importance_floor` values pending advisor
+  sign-off.
 - Verdict ordering (documented in `verdict/verdict.py`): a refuted
-  major-exit capacity is terminal for a subregion (degraded) — required for
-  the design's worked dependency example; refuted robustness likewise pins
-  the tier so open capacity claims lose their tickets when they can no
-  longer change it.
-- Known limitation: the never-zero Track-2 background stream means a
-  background region whose true pass share sits exactly at θ can stay
-  undecided indefinitely; the oracle run caps at 300 rounds and reports
-  "undecided" honestly in that case (observed once, case03 oracle).
+  major-exit capacity is terminal for an object (degraded); refuted
+  robustness likewise pins the tier so open capacity claims lose their
+  tickets when they can no longer change it.
+
+See PROJECT.md §8 for the migration drift notes (missing design document,
+agent-committed split/drill-down, severity semantics, deletions).
 
 ## Boundary declaration (verbatim in every report)
 

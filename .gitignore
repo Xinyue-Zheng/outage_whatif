@@ -8,3 +8,6 @@ __pycache__/
 
 # local assistant settings
 .claude/
+
+# run artifacts (regenerate with: python -m outage_whatif.run_case ...)
+outage_whatif/runs/

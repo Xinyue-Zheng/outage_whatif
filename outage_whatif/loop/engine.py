@@ -721,11 +721,8 @@ class CaseRunner:
             agent_summary=self.agent_ledger.summary(self.round_no),
             incidents=list(self.incidents),
             events=list(self.events), notebook=list(self.notebook))
-        try:
-            from .report import render_report
-            result.report_md = render_report(self, verdict, result)
-        except Exception as e:                      # report lands in Stage D
-            result.report_md = f"(report rendering unavailable: {e})"
+        from .report import render_report
+        result.report_md = render_report(self, verdict, result)
         if self.run_dir is not None:
             self.run_dir.mkdir(parents=True, exist_ok=True)
             (self.run_dir / "ledger.json").write_text(
@@ -736,8 +733,7 @@ class CaseRunner:
                 + "\n".join(f"- {line}" for line in self.notebook) + "\n")
             (self.run_dir / "trace.jsonl").write_text(
                 "\n".join(json.dumps(r, default=str) for r in self.trace))
-            if result.report_md:
-                (self.run_dir / "report.md").write_text(result.report_md)
+            (self.run_dir / "report.md").write_text(result.report_md)
         return result
 
     def run(self, rounds: int | None = None) -> RunResult:
