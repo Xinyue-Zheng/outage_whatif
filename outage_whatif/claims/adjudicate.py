@@ -9,7 +9,7 @@ from __future__ import annotations
 from ..config import Config
 from ..geometry.wilson import wilson_interval
 from .evidence_view import EvidenceView, PMStore
-from .model import (CAPACITY, COVERAGE, INTEGRITY, REFUTED, ROBUSTNESS,
+from .model import (CAPACITY, COVERAGE, REFUTED, ROBUSTNESS,
                     SUPPORTED, UNDECIDED, Claim, ClaimSet)
 
 # DESIGN-GAP: a subregion whose sampled cells are mostly outside the target
@@ -163,23 +163,6 @@ def adjudicate_robustness(claim: Claim, view: EvidenceView, cfg: Config) -> None
         claim.remedy = "densify unsampled evidence cells"
 
 
-def adjudicate_integrity(claim: Claim, view: EvidenceView, cfg: Config) -> None:
-    """The ring outside boundary sector s must contain essentially no
-    footprint points (counted as evidence cells)."""
-    sector = int(claim.subject)
-    votes = view.ring_votes.get(sector, [])
-    contaminated = [v for v in votes if v.in_footprint]
-    claim.detail.update(ring_cells=len(votes), contaminated=len(contaminated))
-    if contaminated:
-        claim.state = REFUTED
-        claim.remedy = "expand the boundary in this sector"
-    elif len(votes) >= cfg.integrity_min_cells:
-        claim.state, claim.remedy = SUPPORTED, ""
-    else:
-        claim.state = UNDECIDED
-        claim.remedy = "sample the integrity ring in this sector"
-
-
 def adjudicate_all(claims: ClaimSet, view: EvidenceView, pm: PMStore,
                    support_edge: float | None, cfg: Config) -> None:
     """Re-adjudicate every alive claim from current evidence (idempotent)."""
@@ -201,5 +184,3 @@ def adjudicate_all(claims: ClaimSet, view: EvidenceView, pm: PMStore,
             for k in kids:
                 adjudicate_capacity_leaf(k, pm, support_edge, cfg)
             aggregate_capacity_parent(c, kids)
-    for c in claims.by_type(INTEGRITY):
-        adjudicate_integrity(c, view, cfg)

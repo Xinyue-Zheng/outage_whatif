@@ -1,4 +1,4 @@
-"""M3 tests: adjudication, lifecycle, verdict, flip test, dependency table."""
+"""M3 tests: adjudication, lifecycle, verdict, flip test."""
 
 import numpy as np
 import pytest
@@ -6,18 +6,17 @@ import pytest
 from outage_whatif.claims import (CAPACITY, COVERAGE, REFUTED, ROBUSTNESS,
                                   SUPPORTED, UNDECIDED, Claim, ClaimSet,
                                   EvidenceView, PMStore, adjudicate_all,
-                                  initial_claims, run_lifecycle)
+                                  open_claims_for, run_lifecycle)
 from outage_whatif.claims.adjudicate import (adjudicate_capacity_leaf,
                                              adjudicate_coverage,
-                                             adjudicate_integrity,
                                              adjudicate_robustness,
                                              capacity_zone)
 from outage_whatif.config import Config
 from outage_whatif.geometry.evidence import CellVote
 from outage_whatif.geometry.raster import PopulationRaster, Subregion
 from outage_whatif.verdict import (VerdictContext, compute_verdict,
-                                   dependency_table, flip_all_tickets,
-                                   flip_ticket)
+                                   flip_all_tickets, flip_ticket)
+from outage_whatif.verdict.verdict import SEVERE_NO, SEVERE_YES
 
 CFG = Config()
 
@@ -134,45 +133,23 @@ def test_robustness_adjudication():
     assert c.state == UNDECIDED
 
 
-def test_integrity_adjudication():
-    c = Claim(cid="INT:0", ctype="integrity", subject="0")
-    v = EvidenceView()
-    clean = [CellVote(cell=(i, 9), n_points=1, in_footprint=False, alt_ok=False,
-                      alt_owner=None, center=(0, 0)) for i in range(4)]
-    v.ring_votes[0] = clean
-    adjudicate_integrity(c, v, CFG)
-    assert c.state == SUPPORTED
-    v.ring_votes[0] = clean[:2]
-    adjudicate_integrity(c, v, CFG)
-    assert c.state == UNDECIDED
-    v.ring_votes[0] = clean + [CellVote(cell=(9, 9), n_points=1,
-                                        in_footprint=True, alt_ok=True,
-                                        alt_owner="S2", center=(0, 0))]
-    adjudicate_integrity(c, v, CFG)
-    assert c.state == REFUTED and "expand" in c.remedy
-
-
 # ------------------------------------------------------------- verdict
-def _ctx(pop=100, majors=("S2",)):
+def _ctx(pop=100, majors=("S2",), severity=None):
     return VerdictContext(sids=["V1"], populations={"V1": pop},
                           major_exits={"V1": list(majors)},
-                          integrity_cids=["INT:0"], policy=CFG.policy)
+                          hole_severity=severity or {}, policy=CFG.policy)
 
 
 def test_verdict_definitional_rules():
-    ctx = _ctx(pop=500)
-    # refuted integrity blocks the run
-    v = compute_verdict({"INT:0": REFUTED, "COV:V1": SUPPORTED}, ctx)
-    assert v.blocked and "blocked" in v.overall
-    # refuted coverage -> hole; severe iff pop >= P0
-    states = {"INT:0": SUPPORTED, "COV:V1": REFUTED, "CAP:S2": SUPPORTED,
-              "ROB:V1": SUPPORTED}
-    v = compute_verdict(states, ctx)
+    # refuted coverage -> hole; severe iff the localization book says the
+    # object is the sole explanation for a heavy cell
+    states = {"COV:V1": REFUTED, "CAP:S2": SUPPORTED, "ROB:V1": SUPPORTED}
+    v = compute_verdict(states, _ctx(severity={"V1": SEVERE_YES}))
     assert v.per_subregion["V1"].tier == "hole"
-    assert v.per_subregion["V1"].severe
+    assert v.per_subregion["V1"].severe == SEVERE_YES
     assert v.overall == "severe hole exists"
-    v = compute_verdict(states, _ctx(pop=100))
-    assert not v.per_subregion["V1"].severe
+    v = compute_verdict(states, _ctx())
+    assert v.per_subregion["V1"].severe == SEVERE_NO
     assert v.overall == "locally degraded"
     # all three supported -> absorbable / fully absorbable
     states["COV:V1"] = SUPPORTED
@@ -181,22 +158,28 @@ def test_verdict_definitional_rules():
     assert v.overall == "fully absorbable"
 
 
-def test_verdict_capacity_refutation_is_terminal():
-    ctx = _ctx(pop=500)
-    states = {"INT:0": SUPPORTED, "COV:V1": UNDECIDED, "CAP:S2": REFUTED,
-              "ROB:V1": UNDECIDED}
+def test_verdict_residual_bound_qualifies_full_absorption():
+    states = {"COV:V1": SUPPORTED, "CAP:S2": SUPPORTED, "ROB:V1": SUPPORTED}
+    ctx = _ctx()
+    ctx.residual_ok = False
     v = compute_verdict(states, ctx)
+    assert v.per_subregion["V1"].tier == "absorbable"
+    assert v.overall == "undecided/qualified"
+
+
+def test_verdict_capacity_refutation_is_terminal():
+    states = {"COV:V1": UNDECIDED, "CAP:S2": REFUTED, "ROB:V1": UNDECIDED}
+    v = compute_verdict(states, _ctx(pop=500))
     sv = v.per_subregion["V1"]
     assert sv.tier == "degraded"
     assert sv.bottleneck_type == "capacity" and sv.bottleneck_subject == "S2"
 
 
 def test_flip_ticket_revoked_by_neighbor_refutation():
-    """Mandated M3 test: a neighbor capacity refutation degrades the village,
-    killing the village's coverage ticket in the dependency table."""
+    """A neighbor capacity refutation degrades the object, revoking the
+    object's coverage ticket (the gate re-checks this at purchase time)."""
     ctx = _ctx(pop=100)
-    states = {"INT:0": SUPPORTED, "COV:V1": UNDECIDED, "CAP:S2": UNDECIDED,
-              "ROB:V1": UNDECIDED}
+    states = {"COV:V1": UNDECIDED, "CAP:S2": UNDECIDED, "ROB:V1": UNDECIDED}
     open_cids = ["COV:V1", "CAP:S2", "ROB:V1"]
 
     tickets = flip_all_tickets(open_cids, states, ctx)
@@ -205,15 +188,7 @@ def test_flip_ticket_revoked_by_neighbor_refutation():
     # robustness is masked while coverage/capacity are open -> no ticket
     assert not tickets["ROB:V1"]
 
-    # spending on an unticketed claim is forbidden; the ticketed ones may spend
-    prices = {"COV:V1": 40.0, "CAP:S2": 6.4, "ROB:V1": 12.0}
-    rows = dependency_table(open_cids, states, ctx, lambda c: prices.get(c, 0.0))
-    row = next(r for r in rows if r.lever_cid == "CAP:S2" and r.outcome == REFUTED)
-    # capacity refuted => V1 degraded => coverage ticket dies, saving 40
-    assert "COV:V1" in row.dead_tickets
-    assert row.savings == pytest.approx(40.0)
-    assert "degraded" in row.consequence
-    # and the flip test itself confirms revocation under the override
+    # the flip test confirms revocation under the override
     assert not flip_ticket("COV:V1", states, ctx, {"CAP:S2": REFUTED})
 
 
@@ -230,8 +205,8 @@ def test_lifecycle_spawn_and_kill_capacity():
                                       (11, 10), (11, 11), (11, 12), (11, 13)],
                     population=200.0, centroid=(1150.0, 1050.0))
     subregions = {"V1": sub}
-    claims = initial_claims(subregions, Subregion(sid="BG", is_background=True),
-                            CFG)
+    claims = ClaimSet()
+    open_claims_for("V1", claims)
     view = view_for("V1", votes(10, 0, owner="S2"))
     ev = run_lifecycle(claims, view, subregions, raster, {}, CFG, round_no=1)
     assert "CAP:S2" in claims and claims.get("CAP:S2").alive
@@ -250,7 +225,8 @@ def test_lifecycle_split_on_clustered_pass_fail():
                     centroid=(1500.0, 1100.0))
     subregions = {"V1": sub}
     raster.pop[10:12, 10:20] = 10.0
-    claims = initial_claims(subregions, Subregion(sid="BG", is_background=True), CFG)
+    claims = ClaimSet()
+    open_claims_for("V1", claims)
     cov = claims.get("COV:V1")
     cov.state = UNDECIDED
     cov.densifications = CFG.split_after_densifications

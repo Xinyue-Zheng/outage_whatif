@@ -7,7 +7,7 @@ from outage_whatif.geometry.footprint import analyze_coverage_point
 from outage_whatif.provider import (PriceBook, SimProvider, Window,
                                     generate_world)
 from outage_whatif.provider.interface import PointCoverage
-from outage_whatif.provider.simulator import World, SimCell, ground_truth
+from outage_whatif.provider.simulator import World, SimCell
 
 CFG = Config()
 SPEC = {"headroom": "mixed", "weak_neighbors": 1, "village_count": 7,
@@ -34,7 +34,6 @@ def test_world_reproducible_from_seed():
     d1, c1 = p1.query_pm(["S4"], "prb_util", "15min", win)
     d2, c2 = p2.query_pm(["S4"], "prb_util", "15min", win)
     assert d1["S4"].samples == d2["S4"].samples and c1 == c2
-    assert ground_truth(w1, CFG, win) == ground_truth(w2, CFG, win)
 
 
 def test_different_seed_differs():
@@ -123,13 +122,3 @@ def test_coverage_top5_structure():
     assert len(pc.backups) == 5
     rsrps = [pc.serving[1]] + [r for _, r in pc.backups]
     assert rsrps == sorted(rsrps, reverse=True)
-
-
-def test_ground_truth_shape():
-    w = generate_world(SPEC, 42, CFG)
-    gt = ground_truth(w, CFG, _window())
-    assert gt["overall"] in {"fully absorbable", "locally degraded",
-                             "severe hole exists"}
-    assert gt["villages"]
-    for name, info in gt["villages"].items():
-        assert info["tier"] in {"absorbable", "degraded", "hole", "severe_hole"}

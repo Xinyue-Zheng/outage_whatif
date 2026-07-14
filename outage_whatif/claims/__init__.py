@@ -1,10 +1,10 @@
 from .model import (Claim, ClaimSet, SUPPORTED, REFUTED, UNDECIDED,
-                    COVERAGE, CAPACITY, ROBUSTNESS, INTEGRITY)
-from .evidence_view import PMStore, EvidenceView, subregion_cells
+                    COVERAGE, CAPACITY, ROBUSTNESS)
+from .evidence_view import PMStore, EvidenceView, subregion_cells, build_view
 from .adjudicate import adjudicate_all
-from .lifecycle import initial_claims, run_lifecycle
+from .lifecycle import open_claims_for, run_lifecycle
 
 __all__ = ["Claim", "ClaimSet", "SUPPORTED", "REFUTED", "UNDECIDED",
-           "COVERAGE", "CAPACITY", "ROBUSTNESS", "INTEGRITY",
-           "PMStore", "EvidenceView", "subregion_cells",
-           "adjudicate_all", "initial_claims", "run_lifecycle"]
+           "COVERAGE", "CAPACITY", "ROBUSTNESS",
+           "PMStore", "EvidenceView", "subregion_cells", "build_view",
+           "adjudicate_all", "open_claims_for", "run_lifecycle"]

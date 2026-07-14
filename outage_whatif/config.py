@@ -30,12 +30,12 @@ class Policy:
     pi_hi: float = 0.85
     # [POLICY] max tolerable top-owner share of best alternatives (robustness)
     kappa: float = 0.60
-    # [POLICY] settlements below this population get no individual claims
+    # [POLICY] raster settlements below this population are not offered as
+    # candidate pins (pin granularity only — severity no longer uses
+    # population)
     P_min: int = 50
-    # [POLICY] severe-hole population line: a hole is severe iff pop >= P0
-    P0: int = 200
-    # [POLICY] major-exit share: a neighbor is a genuine exit for a subregion
-    # iff it is best alternative for >= sigma of that subregion's footprint cells
+    # [POLICY] major-exit share: a neighbor is a genuine exit for an object
+    # iff it is best alternative for >= sigma of that object's footprint cells
     sigma: float = 0.20
     # [POLICY] 15-minute tier: refute iff fraction of bins >= pi_hi exceeds this
     cap15_refute_frac: float = 0.10
@@ -54,6 +54,25 @@ class Policy:
     # busiest hour of the window per the target's held historical profile,
     # else the window midpoint.  Which rule fired is recorded in the report.
     analysis_hour_default_rule: str = "busiest_profile_else_midpoint"
+    # [POLICY] candidate zone margin: the zone is "closer to the target than
+    # to its second-nearest site", buffered outward by this many metres
+    candidate_margin_m: float = 500.0
+    # [POLICY] busy-window traffic (T[c], mean RRC-connected users at the
+    # analysis hour) above which an unknown/unaccounted cell is a gap the
+    # audit must surface.  DESIGN-GAP: illustrative value pending advisor
+    # sign-off.
+    T_material: float = 50.0
+    # [POLICY] a hole is severe iff its object is the sole non-dismissed
+    # explanation for some cell with T[c] >= T_severe.  DESIGN-GAP:
+    # illustrative value pending advisor sign-off.
+    T_severe: float = 200.0
+    # [POLICY] objects whose importance bound exceeds this (traffic units)
+    # with an open claim are audit gaps.  DESIGN-GAP: illustrative value
+    # pending advisor sign-off.
+    importance_floor: float = 30.0
+    # [POLICY] max unaccounted share of target busy-window traffic
+    # compatible with declaring "fully absorbable"
+    rho_residual: float = 0.12
 
 
 @dataclass(frozen=True)
@@ -68,25 +87,26 @@ class Config:
     # ---------------- geometry ----------------
     pixel_m: float = 100.0                # population raster pixel size
     evidence_cell_m: float = 300.0        # effective-evidence cell size
-    background_grid_m: float = 3000.0     # Track-2 fuse grid pitch
-    background_pts_per_tile: int = 2      # random points per background tile
-    r0_factor: float = 0.75               # R0 = r0_factor * median dist to 6 NN
-    n_neighbors_for_r0: int = 6
-    static_area_km: float = 0.0           # >0: fixed start area = the full
-                                          # data square (side in km, exact
-                                          # square containment) instead of the
-                                          # neighbor-derived R0; no integrity
-                                          # ring/claims, no expansion
-    n_sectors: int = 8                    # integrity boundary direction segments
-    ring_width_factor: float = 0.25       # integrity ring: [R, R*(1+factor)]
-    boundary_expand_factor: float = 1.30  # sector radius multiplier on expansion
     density_min_pop: float = 1.0          # raster density filter (pop per pixel)
-    min_settlement_pixels: int = 3        # smaller fragments merge into background
+    min_settlement_pixels: int = 3        # smaller fragments are not offered
+                                          # as candidate pins
+
+    # ---------------- demand localization ----------------
+    n_min_units_per_cell: int = 3         # sampled evidence units served by a
+                                          # target cell before its demand
+                                          # direction is considered mapped
+    dismiss_min_units: int = 4            # sampled units inside an object,
+                                          # none showing the target, required
+                                          # to verify a DismissRequest
+    min_dir_samples: int = 3              # bearings needed before
+                                          # empirical_direction is defined
+    suggested_random_probes: int = 8      # exploration probe locations
+                                          # generated at setup and surfaced as
+                                          # a suggested gap-remedy (never
+                                          # auto-executed)
 
     # ---------------- sampling ----------------
-    min_points_per_settlement: int = 4
     densify_cells_per_round: int = 12     # unsampled evidence cells per densification
-    integrity_min_cells: int = 3          # sampled ring cells needed to support
 
     # ---------------- claims / lifecycle ----------------
     split_after_densifications: int = 2   # coverage split trigger
@@ -98,13 +118,14 @@ class Config:
     cluster_sep_cells: float = 1.5        # pass/fail centroid separation (in
                                           # evidence-cell units) counted as clustered
 
-    # ---------------- agents ----------------
-    grade_weights: dict = field(default_factory=lambda: {
-        "high": 0.75, "mid": 0.45, "low": 0.15})
-    escalation_mode: str = "worst_case"   # worst_case | weighted (weighted: later)
-    fuse_consecutive_misses: int = 2      # per-agent fuse threshold
-    agent_retries: int = 1                # one retry, then fallback
-    runners_up: int = 2                   # Agent 2 sees leader + this many
+    # ---------------- investigator ----------------
+    agent_retries: int = 1                # one re-prompt with the validator
+                                          # error, then the round is skipped
+    max_tool_calls_per_round: int = 8     # read-only tool calls per round
+    price_low_frac: float = 0.02          # gate cap: low confidence may spend
+                                          # at most this fraction of B_initial
+    price_mid_frac: float = 0.10          # gate cap for mid confidence
+                                          # (high confidence: up to 1.0)
 
     # ---------------- loop ----------------
     stable_rounds_to_stop: int = 2

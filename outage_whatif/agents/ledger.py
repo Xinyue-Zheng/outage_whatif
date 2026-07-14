@@ -1,4 +1,8 @@
-"""Purchase ledger and per-agent prediction ledgers with fuses.
+"""Purchase ledger and the agent's prediction ledger.
+
+The prediction ledger is bookkeeping only: per-grade hit rates are recorded
+and shown back to the agent in the briefing, but nothing routes decisions
+away from the agent.
 
 Known selection bias (documented per the design): only rows the system
 actually chose to act on ever get reconciled — the hit rates measure
@@ -8,8 +12,6 @@ performance on chosen rows, not on all graded rows.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-from ..claims.model import UNDECIDED
 
 
 @dataclass
@@ -30,31 +32,19 @@ class PurchaseLedger:
 
 @dataclass
 class AgentLedger:
-    """Per-seat prediction ledger.  Grades of 'mid' are recorded but count
-    neither hit nor miss; the two-consecutive-miss fuse routes THIS seat
-    only to its baseline rule for the next round."""
-    seat: str
-    fuse_threshold: int = 2
+    """Prediction ledger.  Grades of 'mid' are recorded but count neither
+    hit nor miss."""
+    seat: str = "investigator"
     records: list = field(default_factory=list)
     consecutive_misses: int = 0
-    fuse_trips: int = 0
-    fuse_active: bool = False
 
     # ---------------- recording
-    def record_seat1(self, round_no: int, item_id: str, cid: str,
-                     kind: str, grade: str) -> None:
-        """kind: 'supported' | 'refuted' | 'direct'."""
+    def record_prediction(self, round_no: int, item_id: str, cid: str,
+                          predicted_bucket: str, grade: str) -> None:
+        """One committed purchase = one bucket prediction at a grade."""
         self.records.append({"round": round_no, "item": item_id, "cid": cid,
-                             "kind": kind, "grade": grade, "resolved": False,
-                             "hit": None})
-
-    def record_seat2(self, round_no: int, aid: str, cid: str,
-                     predicted_bucket: str, grade: str,
-                     judgment_firming: bool = False) -> None:
-        self.records.append({"round": round_no, "item": aid, "cid": cid,
                              "kind": "bucket", "grade": grade,
                              "predicted": predicted_bucket,
-                             "firming": judgment_firming,
                              "resolved": False, "hit": None})
 
     # ---------------- reconciliation
@@ -63,59 +53,18 @@ class AgentLedger:
         rec["hit"] = hit
         if hit is None:                    # mid grades are neutral
             return
-        if hit:
-            self.consecutive_misses = 0
-        else:
-            self.consecutive_misses += 1
-            if self.consecutive_misses >= self.fuse_threshold:
-                self.fuse_active = True
-                self.fuse_trips += 1
-                self.consecutive_misses = 0
+        self.consecutive_misses = 0 if hit else self.consecutive_misses + 1
 
-    def reconcile_seat1_on_execution(self, cid: str, new_state: str) -> None:
-        """Called when a graded lever's query executes.  Did the outcome
-        land where the grade implied?"""
-        for rec in self.records:
-            if rec["resolved"] or rec["cid"] != cid or rec["kind"] == "bucket":
-                continue
-            g = rec["grade"]
-            if rec["kind"] == "direct":
-                decided = new_state != UNDECIDED
-                hit = None if g == "mid" else (g == "high") == decided
-            else:
-                if new_state == UNDECIDED:
-                    continue               # not yet decided; keep open
-                matched = new_state == rec["kind"]
-                hit = None if g == "mid" else (g == "high") == matched
-            self._score(rec, hit)
-
-    def reconcile_seat2(self, aid: str, actual_bucket: str) -> None:
+    def reconcile(self, item_id: str, actual_bucket: str) -> None:
         """Bucket predictions reconcile immediately on execution."""
         for rec in self.records:
-            if rec["resolved"] or rec["item"] != aid:
+            if rec["resolved"] or rec["item"] != item_id:
                 continue
             rec["actual"] = actual_bucket
             g = rec["grade"]
             matched = rec.get("predicted") == actual_bucket
             hit = None if g == "mid" else (g == "high") == matched
             self._score(rec, hit)
-
-    def score_firming(self, aid: str, grade_moved: bool) -> None:
-        """A judgment-firming purchase is scored on whether the relevant
-        grade actually moved next round."""
-        for rec in self.records:
-            if rec["item"] == aid and rec.get("firming") and not rec["resolved"]:
-                self._score(rec, grade_moved if rec["grade"] != "mid" else None)
-                rec["firming_grade_moved"] = grade_moved
-
-    # ---------------- fuse routing
-    def consume_fuse(self) -> bool:
-        """True if this round must route to the baseline; the fuse then
-        resets (DESIGN-GAP: one-round penalty duration)."""
-        if self.fuse_active:
-            self.fuse_active = False
-            return True
-        return False
 
     # ---------------- reporting
     def hit_rates(self) -> dict:
@@ -130,15 +79,13 @@ class AgentLedger:
                                if scored else None)}
         return out
 
-    def recent_misses(self, n_rounds: int = 3, now_round: int = 0) -> int:
-        return sum(1 for r in self.records
-                   if r["resolved"] and r["hit"] is False
-                   and r["round"] >= now_round - n_rounds)
+    def last_reconciled(self) -> dict | None:
+        """The most recent resolved prediction (briefing: predicted vs
+        actual, hit/miss)."""
+        done = [r for r in self.records if r["resolved"]]
+        return done[-1] if done else None
 
     def summary(self, now_round: int = 0) -> dict:
         return {"hit_rate_per_grade": self.hit_rates(),
-                "misses_last_3_rounds": self.recent_misses(3, now_round),
                 "consecutive_misses": self.consecutive_misses,
-                "fuse_active": self.fuse_active,
-                "fuse_trips": self.fuse_trips,
                 "selection_bias_note": "only chosen rows get tested"}

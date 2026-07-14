@@ -17,31 +17,21 @@ import numpy as np
 from ..config import Config
 from ..geometry.raster import PopulationRaster, Subregion
 from .evidence_view import EvidenceView
-from .model import (CAPACITY, COVERAGE, INTEGRITY, ROBUSTNESS, UNDECIDED,
+from .model import (CAPACITY, COVERAGE, ROBUSTNESS, UNDECIDED,
                     Claim, ClaimSet)
 
 
-def initial_claims(subregions: dict, background: Subregion, cfg: Config,
-                   round_no: int = 0) -> ClaimSet:
-    """Coverage + robustness per settlement subregion and for the background
-    region; one integrity claim per boundary direction sector.  Capacity
-    claims are instantiated only after sampling reveals exit neighbors.
-    Static-area mode (cfg.static_area_km > 0): the boundary is the full
-    data square, definitionally complete — no integrity claims."""
-    claims = ClaimSet()
-    for sid in sorted(subregions) + ["BG"]:
-        claims.add(Claim(cid=f"COV:{sid}", ctype=COVERAGE, subject=sid,
-                         born_round=round_no,
-                         remedy="sample this subregion's evidence cells"))
-        claims.add(Claim(cid=f"ROB:{sid}", ctype=ROBUSTNESS, subject=sid,
-                         born_round=round_no,
-                         remedy="sample this subregion's evidence cells"))
-    if cfg.static_area_km <= 0:
-        for s in range(cfg.n_sectors):
-            claims.add(Claim(cid=f"INT:{s}", ctype=INTEGRITY, subject=str(s),
-                             born_round=round_no,
-                             remedy="sample the integrity ring in this sector"))
-    return claims
+def open_claims_for(sid: str, claims: ClaimSet, round_no: int = 0) -> list:
+    """Open one COV + one ROB claim for a (newly confirmed) demand object.
+    Returns the created claims; the caller flip-tests them at birth."""
+    made = []
+    for prefix, ctype in (("COV", COVERAGE), ("ROB", ROBUSTNESS)):
+        cid = f"{prefix}:{sid}"
+        if cid not in claims:
+            made.append(claims.add(Claim(
+                cid=cid, ctype=ctype, subject=sid, born_round=round_no,
+                remedy="sample this object's evidence cells")))
+    return made
 
 
 # --------------------------------------------------------------- split helper

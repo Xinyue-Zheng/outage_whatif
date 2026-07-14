@@ -1,12 +1,12 @@
-"""M1 tests: Wilson machinery, segmentation, evidence cells, boundary."""
+"""M1 tests: Wilson machinery, segmentation, evidence cells."""
 
 import numpy as np
 import pytest
 
 from outage_whatif.config import Config
 from outage_whatif.geometry import (
-    Boundary, EvidenceGrid, PopulationRaster, cell_of, initial_radius,
-    n_all_pass_clears, sector_of, segment_raster, wilson_interval)
+    EvidenceGrid, PopulationRaster, cell_of, n_all_pass_clears,
+    segment_raster, wilson_interval)
 from outage_whatif.geometry.evidence import PointObs
 
 CFG = Config()
@@ -110,50 +110,3 @@ def test_cell_indexing():
     assert cell_of(299.9, 299.9, 300) == (0, 0)
     assert cell_of(300.0, 0, 300) == (1, 0)
     assert cell_of(-1, -1, 300) == (-1, -1)
-
-
-# ---------------------------------------------------------------- boundary
-def test_initial_radius_median_of_six_nearest():
-    target = (0.0, 0.0)
-    sites = [(1000, 0), (0, 2000), (-3000, 0), (0, -4000), (5000, 0),
-             (0, 6000), (9000, 9000)]
-    # six nearest distances: 1000..6000, median = 3500
-    assert initial_radius(target, sites, CFG) == pytest.approx(0.75 * 3500)
-
-
-def test_boundary_sectors_ring_and_expansion():
-    b = Boundary(center=(0.0, 0.0), radii=[1000.0] * 8, n_sectors=8,
-                 ring_width_factor=0.25)
-    assert sector_of(100, 1, 0, 0, 8) == 0
-    assert sector_of(-100, 1, 0, 0, 8) == 3
-    assert b.contains(500, 0)
-    assert not b.contains(1100, 0)
-    assert b.in_ring(1100, 0) and not b.in_ring(1300, 0)
-    b.expand_sector(0, 1.3)
-    assert b.contains(1100, 10)          # sector 0 grew
-    assert not b.contains(-1100, 10)     # other sectors untouched
-    rng = np.random.default_rng(7)
-    pts = b.ring_points(2, 5, rng)
-    assert len(pts) == 5
-    assert all(b.in_ring(x, y) and b.sector(x, y) == 2 for x, y in pts)
-
-
-# ---------------------------------------------------------------- static area
-def test_static_area_boundary_is_exact_square_with_no_ring():
-    from outage_whatif.claims import initial_claims
-    from outage_whatif.planning.sampling import background_grid_points
-
-    cfg = Config(static_area_km=30.0)
-    b = Boundary.initial((15_000.0, 15_000.0), [], cfg)  # neighbors unneeded
-    # exact square: corners are inside (a 15 km disc would exclude them)
-    assert b.contains(29_999.0, 29_999.0) and b.contains(1.0, 1.0)
-    assert not b.contains(30_001.0, 15_000.0)
-    # no integrity ring, no integrity claims, no expansion possible
-    assert not b.in_ring(30_001.0, 15_000.0)
-    claims = initial_claims({}, None, cfg)
-    assert not [c for c in claims.all() if c.cid.startswith("INT:")]
-    assert [c for c in initial_claims({}, None, CFG).all()
-            if c.cid.startswith("INT:")]          # default mode keeps them
-    # Track-2 background grid stays inside the square
-    pts = background_grid_points(b, cfg, np.random.default_rng(0))
-    assert pts and all(b.contains(x, y) for x, y in pts)

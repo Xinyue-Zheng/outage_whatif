@@ -17,7 +17,6 @@ UNDECIDED = "undecided"
 COVERAGE = "coverage"
 CAPACITY = "capacity"
 ROBUSTNESS = "robustness"
-INTEGRITY = "integrity"
 
 
 @dataclass
@@ -43,11 +42,8 @@ class Claim:
                     f"{self.subject} have a qualifying best alternative")
         if self.ctype == CAPACITY:
             return f"no capacity obstacle found at {self.subject}"
-        if self.ctype == ROBUSTNESS:
-            return (f"best alternatives in {self.subject} are not concentrated "
-                    f"in one owner site")
-        return (f"the ring outside boundary sector {self.subject} contains "
-                f"essentially no footprint points")
+        return (f"best alternatives in {self.subject} are not concentrated "
+                f"in one owner site")
 
 
 class ClaimSet:

@@ -1,10 +1,17 @@
 """The verdict function (deterministic).
 
 Definitional rules (no discretion):
-* refuted integrity blocks the run until boundary expansion;
-* refuted coverage -> hole; a hole is severe iff subregion population >= P0;
+* refuted coverage -> hole;
+* refuted major-exit capacity or refuted robustness -> degraded;
 * coverage + capacity (strict 15-min tier, or calibrated lenient hourly
   tier) + robustness all supported -> absorbable.
+
+Severity of a hole is a demand-localization question, not a population
+question: a hole is severe iff its object is the sole non-dismissed
+registered explanation for some target cell carrying material busy-window
+traffic (T[c] >= T_severe).  If the holed object shares all its cells with
+intact objects the severity is undecided (resolvable by drill-down or, at
+close-out, by the conservative policy default).
 
 Policy rules are exactly the [POLICY] constants in config.Policy.
 
@@ -29,14 +36,17 @@ UND = "undecided"
 OVERALL_FULL = "fully absorbable"
 OVERALL_DEGRADED = "locally degraded"
 OVERALL_SEVERE = "severe hole exists"
-OVERALL_UND = "undecided"
-OVERALL_BLOCKED = "blocked (integrity refuted — boundary expansion required)"
+OVERALL_UND = "undecided/qualified"
+
+SEVERE_YES = "severe"
+SEVERE_NO = "not severe"
+SEVERE_UND = "severity undecided"
 
 
 @dataclass(frozen=True)
 class SubVerdict:
     tier: str
-    severe: bool = False
+    severe: str = SEVERE_NO                  # severe | not severe | severity undecided
     bottleneck_type: str | None = None       # claim type that limited the tier
     bottleneck_subject: str | None = None    # e.g. the congested neighbor
 
@@ -44,12 +54,11 @@ class SubVerdict:
 @dataclass
 class Verdict:
     overall: str
-    blocked: bool
     per_subregion: dict = field(default_factory=dict)   # sid -> SubVerdict
 
     def key(self) -> tuple:
         """Comparable identity for flip tests / stability checks."""
-        return (self.overall, self.blocked,
+        return (self.overall,
                 tuple(sorted((s, v.tier, v.severe)
                              for s, v in self.per_subregion.items())))
 
@@ -58,27 +67,36 @@ class Verdict:
 class VerdictContext:
     """Everything the verdict needs besides the claim states themselves —
     fixed while a flip test perturbs states."""
-    sids: list                                # settlement sids + "BG"
-    populations: dict                         # sid -> population
+    sids: list                                # object sids + "BG"
+    populations: dict                         # sid -> population (reporting)
     major_exits: dict                         # sid -> [neighbor sites]
     unaffected: dict = field(default_factory=dict)   # sid -> bool
     drilled: dict = field(default_factory=dict)      # parent cid -> [child cids]
-    integrity_cids: list = field(default_factory=list)
     top_owner: dict = field(default_factory=dict)    # sid -> site (robustness)
+    # demand localization: sid -> severity string (SEVERE_*), computed by the
+    # localization book (sole-explanation test over heavy cells); objects
+    # absent from the map are "not severe" holes.
+    hole_severity: dict = field(default_factory=dict)
+    # residual demand not accounted for by any registered object (upper bound)
+    residual_bound: float = 0.0
+    residual_ok: bool = True                  # residual_bound <= rho_residual
     policy: Policy = field(default_factory=Policy)
 
     @classmethod
-    def from_claims(cls, claims, view, populations, policy) -> "VerdictContext":
+    def from_claims(cls, claims, view, populations, policy,
+                    hole_severity: dict | None = None,
+                    residual_bound: float = 0.0,
+                    residual_ok: bool = True) -> "VerdictContext":
         sids = sorted(populations)
         ctx = cls(sids=sids, populations=dict(populations),
                   major_exits={sid: view.major_exits(sid, policy.sigma)
                                for sid in sids},
+                  hole_severity=dict(hole_severity or {}),
+                  residual_bound=residual_bound, residual_ok=residual_ok,
                   policy=policy)
         for c in claims.alive():
             if c.ctype == "coverage":
                 ctx.unaffected[c.subject] = c.detail.get("unaffected", False)
-            elif c.ctype == "integrity":
-                ctx.integrity_cids.append(c.cid)
             elif c.ctype == "capacity" and c.drilled:
                 ctx.drilled[c.cid] = list(c.children)
             elif c.ctype == "robustness":
@@ -109,13 +127,8 @@ def compute_verdict(states: dict, ctx: VerdictContext,
     ov = overrides or {}
     eff = lambda cid: _effective(cid, states, ctx, ov)  # noqa: E731
 
-    blocked = any(eff(cid) == REFUTED for cid in ctx.integrity_cids)
-    integrity_open = any(eff(cid) == UNDECIDED for cid in ctx.integrity_cids)
-
     per: dict[str, SubVerdict] = {}
     for sid in ctx.sids:
-        pop = ctx.populations.get(sid, 0.0)
-        severe_pop = pop >= ctx.policy.P0
         cov = eff(f"COV:{sid}")
         if ctx.unaffected.get(sid, False) and f"COV:{sid}" not in ov:
             per[sid] = SubVerdict(ABSORBABLE)
@@ -123,16 +136,17 @@ def compute_verdict(states: dict, ctx: VerdictContext,
         cap_states = {s: eff(f"CAP:{s}") for s in ctx.major_exits.get(sid, [])}
         refuted_caps = sorted(s for s, st in cap_states.items() if st == REFUTED)
         open_caps = sorted(s for s, st in cap_states.items() if st == UNDECIDED)
-        # A refuted major-exit capacity is TERMINAL for the subregion: it is
+        # A refuted major-exit capacity is TERMINAL for the object: it is
         # degraded and further coverage/robustness spending cannot change
-        # that (this is what lets downstream tickets die in the dependency
-        # table, per the design's worked example).
+        # that (this is what lets downstream tickets die under flip
+        # overrides).
         if refuted_caps:
             per[sid] = SubVerdict(DEGRADED, bottleneck_type="capacity",
                                   bottleneck_subject=refuted_caps[0])
             continue
         if cov == REFUTED:
-            per[sid] = SubVerdict(HOLE, severe=severe_pop,
+            per[sid] = SubVerdict(HOLE,
+                                  severe=ctx.hole_severity.get(sid, SEVERE_NO),
                                   bottleneck_type="coverage")
             continue
         if cov == UNDECIDED:
@@ -140,7 +154,7 @@ def compute_verdict(states: dict, ctx: VerdictContext,
             continue
         rob = eff(f"ROB:{sid}")
         # Refuted robustness pins the tier at "degraded" even while capacity
-        # claims remain open — either capacity outcome leaves the subregion
+        # claims remain open — either capacity outcome leaves the object
         # degraded, so the tier is decided (and capacity spending here would
         # rightly be forbidden by the flip test).
         if rob == REFUTED:
@@ -156,16 +170,19 @@ def compute_verdict(states: dict, ctx: VerdictContext,
             continue
         per[sid] = SubVerdict(ABSORBABLE)
 
-    if blocked:
-        return Verdict(OVERALL_BLOCKED, True, per)
     tiers = [v.tier for v in per.values()]
-    severe = any(v.tier == HOLE and v.severe for v in per.values())
+    severe = any(v.tier == HOLE and v.severe == SEVERE_YES
+                 for v in per.values())
     if severe:
         overall = OVERALL_SEVERE
-    elif UND in tiers or integrity_open:
+    elif UND in tiers:
         overall = OVERALL_UND
     elif HOLE in tiers or DEGRADED in tiers:
         overall = OVERALL_DEGRADED
-    else:
+    elif ctx.residual_ok:
         overall = OVERALL_FULL
-    return Verdict(overall, False, per)
+    else:
+        # everything registered is absorbable, but too much demand remains
+        # unaccounted for to declare full absorption
+        overall = OVERALL_UND
+    return Verdict(overall, per)

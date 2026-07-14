@@ -2,8 +2,8 @@
 
 Covers: analysis_hour validation, the [POLICY] default selection rule,
 comparable-day matching (weekday / holiday / exclusion), the hourly tier
-over k matched values, the 15-minute tier over 4k bins, busy_hour_flag,
-and the report's mandatory conditionality text.
+over k matched values, and the 15-minute tier over 4k bins.  (The briefing
+clues and the report's conditionality text are covered by the loop tests.)
 """
 
 import dataclasses
@@ -118,57 +118,3 @@ def test_15min_tier_over_4k_bins_two_spikes_refute_one_is_forgiven():
     c2 = _cap_claim()
     adjudicate_capacity_leaf(c2, PMStore(q15={"S2": two_spikes}), None, CFG)
     assert c2.state == REFUTED
-
-
-# --------------------------------------------------------------- digest clues
-def test_busy_hour_flag_and_matched_hour_spread_in_digest():
-    from outage_whatif.claims.model import ClaimSet
-    from outage_whatif.loop.tables import build_digest
-    from outage_whatif.provider.interface import Profile
-
-    claims = ClaimSet()
-    cap = _cap_claim()
-    cap.detail["serves"] = ["V1"]
-    claims.add(cap)
-    prof = Profile(site="S2", kind="same_weekday",
-                   hourly_mean=[0.2] * 17 + [0.8] * 5 + [0.2] * 2,  # 17..21 busy
-                   hourly_var=[0.01] * 24)
-    pm = PMStore(hourly={"S2": [0.2, 0.4, 0.3, 0.3]})
-
-    class _View:
-        votes_by_sid: dict = {}
-        unsampled_cells: dict = {}
-
-    def _digest(hour):
-        return build_digest(
-            claims, _View(), {}, type("BG", (), {"population": 0})(), pm,
-            {("S2", "same_weekday"): prof},
-            {"analysis_hour": hour, "_hour_range": (10, 18)},
-            {"pi_hi": CFG.policy.pi_hi}, {}, {}, 1)
-
-    busy = _digest(18)["neighbors"]["S2"]
-    assert busy["busy_hour_flag"] is True
-    off = _digest(3)["neighbors"]["S2"]
-    assert off["busy_hour_flag"] is False
-    spread = busy["matched_hour_spread"]
-    assert spread["min"] == 0.2 and spread["max"] == 0.4 and spread["std"] > 0
-
-
-# --------------------------------------------------------------- report text
-def test_report_states_conditionality_verbatim():
-    from outage_whatif.agents import RuleSeat1AllMid, RuleSeat2Cheapest
-    from outage_whatif.loop import CaseRunner
-    from outage_whatif.planning import build_calibration_table
-    from outage_whatif.provider import SimProvider, generate_world
-
-    spec = CaseSpec.load(CASE01)
-    world = generate_world(spec.sim, spec.seed, CFG)
-    calib = build_calibration_table({spec.name: world}, CFG, days=7)
-    runner = CaseRunner(spec, SimProvider(world), RuleSeat1AllMid(),
-                        RuleSeat2Cheapest(), CFG, calib)
-    res = runner.run(arm="rule/rule")
-    h = runner.analysis_hour
-    assert f"This run assessed analysis hour {h:02d}:00." in res.report_md
-    assert "The verdict holds for that hour only." in res.report_md
-    assert "were not verified in this run" in res.report_md
-    assert "[POLICY] applied" in res.report_md    # default rule fired

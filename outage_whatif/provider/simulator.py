@@ -6,14 +6,14 @@ Generates, from a seed and a small scenario spec, a deterministic World:
 * per-cell propagation: pathloss + 3GPP-style azimuth pattern + smooth
   deterministic terrain field -> serving/backup RSRP rankings per coordinate;
 * synthetic population: villages of varied sizes, including (forced) one
-  straddling the initial analysis boundary, one missing from the raster but
-  present in "reality" (exercises the Track-2 background grid), one below
-  P_min and one above P0;
+  missing from the raster but present in "reality" — the canonical
+  residual-mechanism test: it surfaces as an unaccounted heavy cell whose
+  residual_map points at it, registrable via
+  RegisterObject(provenance="residual") — plus one below P_min (the
+  importance-floor test) and one large one;
 * per-site/cell synthetic load series (weekday/weekend/holiday structure,
   controllable headroom, deterministic hash-noise spikes) queryable over any
-  window at hourly or 15-minute granularity;
-* ground-truth absorption tier computed from the generator's own hidden
-  parameters.
+  window at hourly or 15-minute granularity.
 
 Everything is a pure function of (spec, seed): a full case run is
 reproducible from the case spec and seed alone.
@@ -30,9 +30,7 @@ from datetime import date, datetime, timedelta
 import numpy as np
 
 from ..config import Config
-from ..geometry.evidence import cell_of
 from ..geometry.raster import PopulationRaster
-from ..geometry.boundary import initial_radius
 from .interface import (DataProvider, PMSeries, PointCoverage, Profile,
                         Topology, Window)
 from .pricing import PriceBook
@@ -109,11 +107,9 @@ class World:
     def rsrp(self, cell: SimCell, x: float, y: float) -> float:
         d = max(math.hypot(x - cell.x, y - cell.y), 25.0)
         # 32 dB/decade with a 90-degree beam puts the boresight footprint
-        # edge (~2.2 km at tau_acc=-110) just beyond R0 (~1.9 km for the
-        # 2.6 km grid pitch): the integrity ring is contaminated in a few
-        # directions (boundary expansion genuinely exercises), and neighbor
-        # sites at one grid pitch can — but do not always — qualify as best
-        # alternatives.
+        # edge at ~2.2 km for tau_acc=-110 (comparable to the 2.6 km grid
+        # pitch): neighbor sites at one grid pitch can — but do not always —
+        # qualify as best alternatives.
         pl = 32.0 * math.log10(d / 25.0)
         ang = math.degrees(math.atan2(y - cell.y, x - cell.x))
         diff = abs((ang - cell.azimuth + 180.0) % 360.0 - 180.0)
@@ -273,7 +269,12 @@ def generate_world(spec: dict, seed: int, cfg: Config) -> World:
 
     # ---- villages (populations are hidden truth; raster may omit/miss)
     tx, ty = sites[target]
-    r0 = initial_radius((tx, ty), list(sites.values()), cfg)
+    # placement scale: 0.75 x median distance to the 6 nearest neighbor
+    # sites — keeps the forced villages inside the target's plausible
+    # footprint (a simulator-internal constant, not an analysis boundary)
+    dists = sorted(math.hypot(x - tx, y - ty)
+                   for sid, (x, y) in sites.items() if sid != target)
+    r0 = 0.75 * float(np.median(np.array(dists[:6])))
 
     def _place(dist_lo, dist_hi):
         ang = rng.uniform(0, 2 * math.pi)
@@ -281,19 +282,22 @@ def generate_world(spec: dict, seed: int, cfg: Config) -> World:
         return tx + r * math.cos(ang), ty + r * math.sin(ang)
 
     villages = []
-    # forced: one large village (>= P0), well inside the boundary
+    # forced: one large village, well inside the footprint
     x, y = _place(0.30 * r0, 0.65 * r0)
-    villages.append(TrueVillage("big", x, y, float(rng.uniform(1.6, 3.2)) * cfg.policy.P0,
+    villages.append(TrueVillage("big", x, y, float(rng.uniform(1.6, 3.2)) * 200.0,
                                 rng.uniform(180, 300)))
-    # forced: one straddling the initial boundary
+    # forced: one near the footprint edge (an ordinary pin; historically the
+    # "boundary straddler" of the boundary-based architecture)
     x, y = _place(0.97 * r0, 1.03 * r0)
     villages.append(TrueVillage("straddler", x, y, float(rng.uniform(90, 260)),
                                 rng.uniform(200, 320)))
-    # forced: one present in reality but MISSING from the raster
+    # forced: one present in reality but MISSING from the raster — the
+    # residual-mechanism test (unaccounted heavy cell -> residual_map ->
+    # RegisterObject(provenance="residual"))
     x, y = _place(0.45 * r0, 0.85 * r0)
     villages.append(TrueVillage("ghost", x, y, float(rng.uniform(80, 160)),
                                 rng.uniform(120, 220), in_raster=False))
-    # forced: one below P_min (never individually verified)
+    # forced: one below P_min (importance-floor test)
     x, y = _place(0.35 * r0, 0.90 * r0)
     villages.append(TrueVillage("tiny", x, y, float(rng.uniform(15, 45)),
                                 rng.uniform(80, 140)))
@@ -370,100 +374,3 @@ class SimProvider(DataProvider):
 
     def quote(self, kind: str, **params) -> float:
         return self.book.quote(kind, **params)
-
-
-# ------------------------------------------------------------------ ground truth
-def ground_truth(world: World, cfg: Config, window: Window,
-                 matched_windows: list | None = None) -> dict:
-    """Absorption tier per true village and overall, from hidden parameters.
-
-    Per-hour semantics: when ``matched_windows`` is given (the k matched
-    one-hour windows of the analysis hour), capacity truth is the 15-minute
-    series over exactly those hours — the labels are conditional on the
-    analysis hour, mirroring the system's question.  The spike-fraction
-    formula degrades gracefully on a single hour (max(len, 1) guard; 4 bins
-    minimum per hour).
-
-    DESIGN-GAP: ground truth uses the same necessary-condition semantics as
-    the claim system but with perfect information (dense sampling, full
-    15-minute series).  It measures whether sequential querying recovered
-    the truth, not the physical outcome of an actual outage.
-    """
-    from ..geometry.evidence import EvidenceGrid
-    from ..geometry.footprint import analyze_coverage_point
-    roster = {c.cell_id: c.site_id for c in world.cells}
-    pol = cfg.policy
-    out = {"villages": {}, "overall": None, "bottlenecks": {}}
-    tiers = []
-
-    for v in world.villages:
-        # dense grid over the village disc, aggregated into the SAME 300 m
-        # evidence cells (majority vote) the claim system counts — ground
-        # truth is the infinite-data limit of what the system measures.
-        grid = EvidenceGrid(cell_m=cfg.evidence_cell_m)
-        step = 60.0
-        r = v.radius
-        gx = np.arange(v.x - r, v.x + r + 1, step)
-        gy = np.arange(v.y - r, v.y + r + 1, step)
-        for x in gx:
-            for y in gy:
-                if (x - v.x) ** 2 + (y - v.y) ** 2 <= r * r:
-                    grid.add(analyze_coverage_point(
-                        world.coverage_at(float(x), float(y)),
-                        world.target_site, roster, cfg.tau_acc))
-        votes = grid.votes()
-        fp = [c for c in votes if c.in_footprint]
-        # same unaffected rule as claims.adjudicate (30% of cells)
-        if len(fp) < 0.30 * max(len(votes), 1):
-            continue                       # village not affected by the outage
-        pass_share = sum(c.alt_ok for c in fp) / len(fp)
-
-        owners = {}
-        for c in fp:
-            if c.alt_owner:
-                owners[c.alt_owner] = owners.get(c.alt_owner, 0) + 1
-        shares = {s: k / len(fp) for s, k in owners.items()}
-        major = sorted(s for s, sh in shares.items() if sh >= pol.sigma)
-        top_share = max(shares.values()) if shares else 0.0
-
-        # capacity truth: full 15-minute series over the matched analysis
-        # hours (or the whole window when no analysis hour was selected)
-        cap_bad = []
-        cap_wins = matched_windows or [window]
-        for s in major:
-            vals = [x for w2 in cap_wins
-                    for x in world.pm_series(s, "prb_util", "15min",
-                                             w2).values()]
-            frac = sum(x >= pol.pi_hi for x in vals) / max(len(vals), 1)
-            if frac > pol.cap15_refute_frac:
-                cap_bad.append(s)
-
-        if pass_share < pol.theta:
-            tier = "severe_hole" if v.pop >= pol.P0 else "hole"
-            bottleneck = ("coverage", None)
-        elif cap_bad:
-            tier = "degraded"
-            bottleneck = ("capacity", cap_bad[0])
-        elif top_share > pol.kappa:
-            tier = "degraded"
-            bottleneck = ("robustness", max(shares, key=shares.get))
-        else:
-            tier = "absorbable"
-            bottleneck = (None, None)
-        out["villages"][v.name] = {
-            "tier": tier, "pop": round(v.pop, 1), "pass_share": round(pass_share, 3),
-            "major_exits": major, "top_owner_share": round(top_share, 3),
-            "in_raster": v.in_raster, "xy": (round(v.x, 1), round(v.y, 1)),
-        }
-        out["bottlenecks"][v.name] = bottleneck
-        tiers.append(tier)
-
-    if "severe_hole" in tiers:
-        out["overall"] = "severe hole exists"
-    elif "hole" in tiers or "degraded" in tiers:
-        out["overall"] = "locally degraded"
-    elif tiers:
-        out["overall"] = "fully absorbable"
-    else:
-        out["overall"] = "fully absorbable"      # nothing affected
-    return out
