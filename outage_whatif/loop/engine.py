@@ -361,7 +361,13 @@ class CaseRunner:
                     raise ValueError("pm purchase needs entities")
             params["entities"] = list(ents)
         elif kind == "target_kpi":
-            params["entities"] = list(self.book.cells)
+            gran = params.get("granularity", "cell")
+            if gran not in ("cell", "site"):
+                raise ValueError("target_kpi granularity must be 'cell' "
+                                 f"or 'site', got {gran!r}")
+            params["granularity"] = gran
+            params["entities"] = (list(self.book.cells) if gran == "cell"
+                                  else [self.target])
         elif kind == "profile":
             if "site" not in params or "profile_kind" not in params:
                 raise ValueError("profile needs site and profile_kind")
@@ -403,7 +409,10 @@ class CaseRunner:
             for ent, series in data.items():
                 vals = series.values()
                 t = round(sum(vals) / max(len(vals), 1), 1)
-                self.book.set_traffic(ent, t)
+                if req.params["granularity"] == "cell":
+                    self.book.set_traffic(ent, t)
+                else:
+                    self.book.set_site_total(t)
                 self._new_traffic[ent] = t
         elif req.kind == "profile":
             p = req.params

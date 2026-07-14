@@ -203,6 +203,43 @@ def test_confidence_cap_bounce_and_retry_through_the_loop():
     assert not runner.incidents
 
 
+def test_target_kpi_site_level_is_cheaper_and_does_not_close_the_ledger_gap():
+    """The agent's granularity choice on target_kpi is real: site-level
+    buys one entity, sets book.site_total, but never decomposes into
+    per-cell T[c] — so the demand-ledger gap stays open."""
+    def commit(s, u):
+        return {"commit": {
+            "action": "purchase", "kind": "target_kpi", "target": "GAP:ledger",
+            "params": {"granularity": "site"},
+            "predicted_bucket": "heavy_cells_present", "confidence": "mid",
+            "citation": u.split("GAP:ledger | ")[1].split("\n")[0][:40],
+            "rationale": "cheap peek before the full cell-level buy"}}
+    runner = _runner([NOTE, commit])
+    k = CFG.policy.comparable_days_k
+    site_price = runner.provider.quote("pm", granularity="hourly",
+                                       n_entities=1, hours=k)
+    cell_price = runner.provider.quote("pm", granularity="hourly",
+                                       n_entities=len(runner.book.cells),
+                                       hours=k)
+    assert site_price < cell_price
+    runner.step()
+    assert runner.ledger.entries[-1]["price"] == pytest.approx(site_price)
+    assert runner.book.site_total is not None
+    assert all(c not in runner.book.traffic for c in runner.book.cells)
+    assert any(g.kind == "demand_ledger_absent" for g in runner._gaps())
+
+
+def test_target_kpi_invalid_granularity_rejected():
+    bad = {"commit": {
+        "action": "purchase", "kind": "target_kpi", "target": "GAP:ledger",
+        "params": {"granularity": "county"},
+        "predicted_bucket": "heavy_cells_present", "confidence": "mid",
+        "citation": "GAP:ledger", "rationale": "test"}}
+    runner = _runner([NOTE, bad, bad])
+    runner.step()
+    assert any("granularity" in str(i) for i in runner.incidents)
+
+
 def test_citation_rejection_through_the_loop():
     fabricated = {"commit": {
         "action": "purchase", "kind": "target_kpi", "target": "GAP:ledger",

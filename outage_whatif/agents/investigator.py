@@ -63,7 +63,12 @@ COMMITTING ACTIONS (one per round):
      params by kind — probe: {"points": [[x, y], ...]} or {"object": "V1",
      "n": 6} or {"use_suggested_probes": true}; densify: {} (the target
      claim names the object); pm_hourly/pm_15min: {"entities": ["S2"]};
-     target_kpi: {} (all target cells); profile: {"site": "S2",
+     target_kpi: {} or {"granularity": "cell"} (default — every target
+     cell, needed to close the demand-ledger gap) or
+     {"granularity": "site"} (cheaper, one whole-site total — a coarse
+     early read on whether there is notable traffic at all, but it is
+     never split into per-cell numbers and does NOT close the
+     demand-ledger gap); profile: {"site": "S2",
      "profile_kind": "same_weekday|matched_hour|holiday_last_year"}.
   {"commit": {"action": "register_object", "x": ..., "y": ...,
      "radius_m": ..., "provenance": "agent|residual", "note": "..."}}

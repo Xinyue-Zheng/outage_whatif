@@ -54,7 +54,10 @@ def audit(book: CellLocalizationBook, registry: ObjectRegistry, claims,
             gap_id="GAP:ledger", kind="demand_ledger_absent",
             subject=book.target, stake=None,
             remedy=(f"buy cell-level busy-window KPI for the target "
-                    f"({len(missing_T)} of {len(book.cells)} cells unknown)")))
+                    f"({len(missing_T)} of {len(book.cells)} cells unknown); "
+                    f"a cheaper site-level peek "
+                    f"(target_kpi granularity='site', 1 entity) is also "
+                    f"available but does not close this gap")))
 
     # ---- per-cell localization
     for cell in book.cells:

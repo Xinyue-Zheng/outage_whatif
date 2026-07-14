@@ -39,6 +39,12 @@ class CellLocalizationBook:
         self.cells = sorted(target_cells)          # target roster cell ids
         self.traffic: dict = {}                    # cell -> T[c]
         self._points: dict = defaultdict(list)     # cell -> [(x, y)]
+        # a site-level target_kpi purchase (cheaper, 1 entity) gives one
+        # whole-site total; it is never split into per-cell T[c] ("traffic
+        # is never split") so it does not close the demand-ledger gap —
+        # it is a coarse, cheap peek the agent may buy before committing
+        # to the full per-cell purchase.
+        self.site_total: float | None = None
 
     # ---------------- feeding
     def add_point(self, x: float, y: float, serving_cell: str) -> None:
@@ -49,6 +55,9 @@ class CellLocalizationBook:
     def set_traffic(self, cell: str, value: float) -> None:
         if cell in self.cells:
             self.traffic[cell] = float(value)
+
+    def set_site_total(self, value: float) -> None:
+        self.site_total = float(value)
 
     # ---------------- per-cell reads
     def T(self, cell: str) -> float | None:
