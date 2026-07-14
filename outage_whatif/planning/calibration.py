@@ -97,3 +97,45 @@ def build_calibration_table(worlds: dict, cfg: Config,
         bucket_counts=counts,
         false_pass_max=pol.calib_false_pass_max,
         sources=sorted(worlds))
+
+
+
+# --------------------------------------------------------- artifact plumbing
+CASES_DIR = Path(__file__).parent.parent / "cases"
+ARTIFACT = CASES_DIR / "calibration_table.json"
+
+
+def build_and_save_calibration(cfg: Config | None = None,
+                               cases_dir: Path = CASES_DIR,
+                               artifact: Path = ARTIFACT) -> CalibrationTable:
+    """Build the table from the calibration cases' simulated worlds and
+    store it as the versioned artifact the runtime loads."""
+    # local imports: loop.case and provider.simulator import planning back
+    from ..config import CFG
+    from ..loop.case import CaseSpec
+    from ..provider.simulator import generate_world
+    cfg = cfg or CFG
+    worlds = {}
+    for path in sorted(cases_dir.glob("*.yaml")):
+        spec = CaseSpec.load(path)
+        if spec.kind == "calibration":
+            worlds[spec.name] = generate_world(spec.sim, spec.seed, cfg)
+    if not worlds:
+        raise RuntimeError(f"no calibration cases found in {cases_dir}")
+    table = build_calibration_table(worlds, cfg, days=28)
+    table.save(artifact)
+    return table
+
+
+def load_calibration(artifact: Path = ARTIFACT) -> CalibrationTable | None:
+    if artifact.exists():
+        return CalibrationTable.load(artifact)
+    return None
+
+
+if __name__ == "__main__":
+    t = build_and_save_calibration()
+    print(f"saved {ARTIFACT}")
+    print(f"version={t.version} support_edge={t.support_edge}")
+    print(f"bucket_rates={t.bucket_rates}")
+
