@@ -193,91 +193,44 @@ def test_flip_ticket_revoked_by_neighbor_refutation():
 
 
 # ------------------------------------------------------------- lifecycle
-def _mini_raster():
-    pop = np.zeros((30, 30))
-    pop[10:12, 10:14] = 25.0
-    return PopulationRaster(pop=pop, x0=0.0, y0=0.0, pixel_m=100.0)
-
-
 def test_lifecycle_spawn_and_kill_capacity():
-    raster = _mini_raster()
-    sub = Subregion(sid="V1", pixels=[(10, 10), (10, 11), (10, 12), (10, 13),
-                                      (11, 10), (11, 11), (11, 12), (11, 13)],
-                    population=200.0, centroid=(1150.0, 1050.0))
-    subregions = {"V1": sub}
     claims = ClaimSet()
     open_claims_for("V1", claims)
     view = view_for("V1", votes(10, 0, owner="S2"))
-    ev = run_lifecycle(claims, view, subregions, raster, {}, CFG, round_no=1)
+    ev = run_lifecycle(claims, view, CFG, round_no=1)
     assert "CAP:S2" in claims and claims.get("CAP:S2").alive
     assert any("spawned CAP:S2" in e for e in ev)
     # S2 stops being anyone's best alternative -> claim dies
     view2 = view_for("V1", votes(10, 0, owner="S4"))
-    ev2 = run_lifecycle(claims, view2, subregions, raster, {}, CFG, round_no=2)
+    ev2 = run_lifecycle(claims, view2, CFG, round_no=2)
     assert not claims.get("CAP:S2").alive
     assert any("killed CAP:S2" in e for e in ev2)
 
 
-def test_lifecycle_split_on_clustered_pass_fail():
-    raster = _mini_raster()
+def test_split_machinery_partitions_population():
+    """Subregion splitting is agent-committed now; the machinery is tested
+    directly (the gate precondition is covered by the investigator tests)."""
+    from outage_whatif.claims.lifecycle import (_pass_fail_clustered,
+                                                _split_subregion)
+    raster = PopulationRaster(pop=np.zeros((30, 30)), x0=0.0, y0=0.0,
+                              pixel_m=100.0)
+    raster.pop[10:12, 10:20] = 10.0
     pixels = [(iy, ix) for iy in (10, 11) for ix in range(10, 20)]
     sub = Subregion(sid="V1", pixels=pixels, population=200.0,
                     centroid=(1500.0, 1100.0))
-    subregions = {"V1": sub}
-    raster.pop[10:12, 10:20] = 10.0
-    claims = ClaimSet()
-    open_claims_for("V1", claims)
-    cov = claims.get("COV:V1")
-    cov.state = UNDECIDED
-    cov.densifications = CFG.split_after_densifications
-    # pass cells on the left (x~1100), fail cells on the right (x~1900):
-    # separation 800 m > 1.5 evidence cells -> clustered
     cvs = ([CellVote(cell=(3, i), n_points=1, in_footprint=True, alt_ok=True,
                      alt_owner="S2", center=(1100.0 + i * 10, 1100.0))
             for i in range(3)] +
            [CellVote(cell=(6, i), n_points=1, in_footprint=True, alt_ok=False,
                      alt_owner="S2", center=(1900.0 + i * 10, 1100.0))
             for i in range(3)])
-    view = view_for("V1", cvs)
-    ev = run_lifecycle(claims, view, subregions, raster, {}, CFG, round_no=3)
-    assert any("split V1" in e for e in ev)
-    assert "V1" not in subregions and {"V1a", "V1b"} <= set(subregions)
-    assert not claims.get("COV:V1").alive
-    assert claims.get("COV:V1a").alive and claims.get("COV:V1b").alive
-    assert claims.get("ROB:V1a").alive
-    # population conserved across the split
-    assert (subregions["V1a"].population + subregions["V1b"].population
-            == pytest.approx(200.0))
-
-
-def test_lifecycle_capacity_drilldown():
-    raster = _mini_raster()
-    subregions = {}
-    claims = ClaimSet()
-    cap = claims.add(Claim(cid="CAP:S2", ctype=CAPACITY, subject="S2",
-                           state=UNDECIDED,
-                           detail={"zone": "middle_zone"},
-                           rounds_undecided=CFG.drilldown_after_rounds))
-    roster = {"S2_c0": "S2", "S2_c1": "S2", "S2_c2": "S2", "S3_c0": "S3"}
-    view = EvidenceView(owner_shares={"V1": {"S2": 1.0}})
-    ev = run_lifecycle(claims, view, subregions, raster, roster, CFG, round_no=4)
-    assert cap.drilled
-    assert len(cap.children) == 3
-    assert "CAP:S2:S2_c1" in claims
-    assert any("drilled down" in e for e in ev)
-
-
-def test_lifecycle_drilldown_disabled_for_site_level_analysis():
-    import dataclasses
-    cfg = dataclasses.replace(CFG, capacity_drilldown=False)
-    raster = _mini_raster()
-    claims = ClaimSet()
-    cap = claims.add(Claim(cid="CAP:S2", ctype=CAPACITY, subject="S2",
-                           state=UNDECIDED,
-                           detail={"zone": "middle_zone"},
-                           rounds_undecided=cfg.drilldown_after_rounds))
-    roster = {"S2_c0": "S2", "S2_c1": "S2", "S2_c2": "S2"}
-    view = EvidenceView(owner_shares={"V1": {"S2": 1.0}})
-    ev = run_lifecycle(claims, view, {}, raster, roster, cfg, round_no=4)
-    assert not cap.drilled and not cap.children
-    assert not any("drilled down" in e for e in ev)
+    centroids = _pass_fail_clustered(cvs, CFG)
+    assert centroids is not None            # 800 m > 1.5 evidence cells
+    a, b = _split_subregion(sub, raster, *centroids)
+    assert a.pixels and b.pixels
+    assert a.population + b.population == pytest.approx(200.0)
+    # not clustered -> no split offered
+    close = [CellVote(cell=(3, i), n_points=1, in_footprint=True,
+                      alt_ok=bool(i % 2), alt_owner="S2",
+                      center=(1100.0 + i * 10, 1100.0)) for i in range(4)]
+    assert _pass_fail_clustered(close, CFG) is None

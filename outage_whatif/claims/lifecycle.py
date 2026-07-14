@@ -1,11 +1,13 @@
-"""Claim lifecycle (code, every round).
+"""Claim lifecycle.
 
-* new exit neighbors discovered by densification spawn capacity claims
-  (flip-tested at birth by the loop's post-lifecycle flip pass);
-* neighbors that stop being anyone's best alternative die;
-* a coverage claim undecided through two densifications with spatially
-  clustered pass/fail cells triggers a subregion split;
-* a capacity claim stuck at site level drills down to per-cell children.
+Code-run every round: newly revealed exit neighbors spawn capacity claims
+(flip-tested at birth by the loop's post-lifecycle flip pass); neighbors
+that stop being anyone's best alternative die.  Claims for demand objects
+open on CONFIRMATION (``open_claims_for``), never at startup.
+
+Subregion splitting and capacity drill-down are agent-committed actions in
+the investigator architecture (SplitObject / DrillDown, instrument-checked
+by the gate); the split machinery lives here and is called by the engine.
 """
 
 from __future__ import annotations
@@ -17,8 +19,7 @@ import numpy as np
 from ..config import Config
 from ..geometry.raster import PopulationRaster, Subregion
 from .evidence_view import EvidenceView
-from .model import (CAPACITY, COVERAGE, ROBUSTNESS, UNDECIDED,
-                    Claim, ClaimSet)
+from .model import (CAPACITY, COVERAGE, ROBUSTNESS, Claim, ClaimSet)
 
 
 def open_claims_for(sid: str, claims: ClaimSet, round_no: int = 0) -> list:
@@ -76,10 +77,9 @@ def _split_subregion(sub: Subregion, raster: PopulationRaster,
 
 
 # --------------------------------------------------------------- lifecycle
-def run_lifecycle(claims: ClaimSet, view: EvidenceView, subregions: dict,
-                  raster: PopulationRaster, roster: dict, cfg: Config,
+def run_lifecycle(claims: ClaimSet, view: EvidenceView, cfg: Config,
                   round_no: int) -> list[str]:
-    """Mutates claims and subregions; returns human-readable event log lines."""
+    """Mutates claims; returns human-readable event log lines."""
     events: list[str] = []
     pol = cfg.policy
 
@@ -108,59 +108,5 @@ def run_lifecycle(claims: ClaimSet, view: EvidenceView, subregions: dict,
             for k in c.children:
                 claims.get(k).alive = False
             events.append(f"killed {c.cid} (no longer anyone's best alternative)")
-
-    # ---- coverage subregion split
-    for c in list(claims.by_type(COVERAGE)):
-        if (c.state != UNDECIDED or c.subject == "BG" or c.children
-                or c.densifications < cfg.split_after_densifications):
-            continue
-        centroids = _pass_fail_clustered(view.votes_by_sid.get(c.subject, []), cfg)
-        if centroids is None:
-            continue
-        sub = subregions.pop(c.subject)
-        a, b = _split_subregion(sub, raster, *centroids)
-        if not a.pixels or not b.pixels:
-            subregions[c.subject] = sub      # degenerate split; keep parent
-            continue
-        subregions[a.sid], subregions[b.sid] = a, b
-        for child in (a, b):
-            cov = claims.add(Claim(cid=f"COV:{child.sid}", ctype=COVERAGE,
-                                   subject=child.sid, born_round=round_no,
-                                   parent=c.cid,
-                                   remedy="densify unsampled evidence cells"))
-            c.children.append(cov.cid)
-            claims.add(Claim(cid=f"ROB:{child.sid}", ctype=ROBUSTNESS,
-                             subject=child.sid, born_round=round_no,
-                             parent=f"ROB:{c.subject}",
-                             remedy="sample this subregion's evidence cells"))
-        c.alive = False
-        rob_cid = f"ROB:{c.subject}"
-        if rob_cid in claims:
-            claims.get(rob_cid).alive = False
-        events.append(f"split {c.subject} -> {a.sid}, {b.sid} "
-                      f"(clustered pass/fail cells after "
-                      f"{c.densifications} densifications)")
-
-    # ---- capacity drill-down to per-cell children
-    # DESIGN-GAP: trigger = stuck undecided at site level (middle zone) for
-    # >= drilldown_after_rounds rounds; the spec names the mechanism but not
-    # the exact trigger.  Disabled entirely when cfg.capacity_drilldown is
-    # False (site-level analysis; data source has no per-cell PM) — the
-    # stuck claim's remedy stays the 15-minute site query.
-    for c in list(claims.by_type(CAPACITY)) if cfg.capacity_drilldown else []:
-        if (c.parent is not None or c.drilled or c.state != UNDECIDED
-                or c.detail.get("zone") != "middle_zone"
-                or c.rounds_undecided < cfg.drilldown_after_rounds):
-            continue
-        cells = sorted(cell for cell, site in roster.items()
-                       if site == c.subject)
-        for cell in cells:
-            kid = claims.add(Claim(cid=f"CAP:{c.subject}:{cell}",
-                                   ctype=CAPACITY, subject=cell,
-                                   born_round=round_no, parent=c.cid,
-                                   remedy="buy per-cell PM for the outage-matched window"))
-            c.children.append(kid.cid)
-        c.drilled = True
-        events.append(f"drilled down {c.cid} -> {len(cells)} per-cell children")
 
     return events

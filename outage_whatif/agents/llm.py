@@ -26,7 +26,9 @@ class LLMClient:
 
 
 class MockLLM(LLMClient):
-    """Scripted responses for tests (dicts, JSON strings, or Exceptions)."""
+    """Scripted responses for tests: dicts, JSON strings, Exceptions, or
+    callables ``f(system, user) -> response`` (for multi-step tool->commit
+    sequences that react to tool outputs in the accumulated prompt)."""
 
     def __init__(self, responses: list):
         self.responses = list(responses)
@@ -37,6 +39,8 @@ class MockLLM(LLMClient):
         if not self.responses:
             raise LLMError("mock exhausted")
         r = self.responses.pop(0)
+        if callable(r) and not isinstance(r, Exception):
+            r = r(system, user)
         if isinstance(r, Exception):
             raise r
         if isinstance(r, str):

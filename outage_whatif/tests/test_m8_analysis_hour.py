@@ -23,7 +23,7 @@ from outage_whatif.planning.comparable import (default_analysis_hour,
 from outage_whatif.provider.interface import Window
 
 CFG = Config()
-CASE01 = Path(__file__).parent.parent / "cases" / "case01_calibration.yaml"
+CASE01 = Path(__file__).parent.parent / "cases" / "case01.yaml"
 
 
 def _window(start="2026-07-20T10:00", end="2026-07-20T18:00"):
