@@ -168,8 +168,11 @@ class Investigator:
         for _ in range(self.cfg.max_tool_calls_per_round
                        + self.cfg.agent_retries + 2):
             try:
+                print(f"=== LLM INPUT (system) ===\n{SYSTEM_PROMPT}\n"
+                     f"=== LLM INPUT (user) ===\n{user}\n=== END INPUT ===")
                 resp = self.client.complete_json(SYSTEM_PROMPT, user,
                                                  RESPONSE_SCHEMA)
+                print(f"=== LLM OUTPUT ===\n{resp}\n=== END OUTPUT ===")
             except (LLMError, ValueError) as e:     # incl. non-JSON output
                 resp, err = None, f"transport/JSON error: {e}"
             else:
