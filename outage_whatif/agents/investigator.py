@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..config import Config
 from .llm import LLMClient, LLMError
@@ -151,9 +152,29 @@ class RoundOutcome:
 class Investigator:
     name = "investigator"
 
-    def __init__(self, client: LLMClient, cfg: Config):
+    def __init__(self, client: LLMClient, cfg: Config,
+                 log_path: str | Path | None = None):
+        """log_path: if given, every complete_json() call's full
+        (system, user) input and raw response/error is appended there as
+        plain text, in addition to the console print — useful for
+        reviewing a run after the fact instead of scrolling terminal
+        output."""
         self.client = client
         self.cfg = cfg
+        self.log_path = Path(log_path) if log_path else None
+        self._call_no = 0
+
+    def _log_io(self, user: str, resp=None, error: str | None = None) -> None:
+        self._call_no += 1
+        block = (f"===== LLM CALL {self._call_no} =====\n"
+                 f"--- SYSTEM ---\n{SYSTEM_PROMPT}\n"
+                 f"--- USER ---\n{user}\n")
+        block += (f"--- ERROR ---\n{error}\n" if error is not None
+                  else f"--- RESPONSE ---\n{resp}\n")
+        print(block)
+        if self.log_path:
+            with self.log_path.open("a") as f:
+                f.write(block + "\n")
 
     def run_round(self, briefing: str, tools: dict,
                   rejection: str | None = None,
@@ -173,15 +194,14 @@ class Investigator:
         for _ in range(self.cfg.max_tool_calls_per_round
                        + self.cfg.agent_retries + 2):
             try:
-                print(f"=== LLM INPUT (system) ===\n{SYSTEM_PROMPT}\n"
-                     f"=== LLM INPUT (user) ===\n{user}\n=== END INPUT ===")
                 resp = self.client.complete_json(SYSTEM_PROMPT, user,
                                                  RESPONSE_SCHEMA)
-                print(f"=== LLM OUTPUT ===\n{resp}\n=== END OUTPUT ===")
             except (LLMError, ValueError) as e:     # incl. non-JSON output
                 resp, err = None, f"transport/JSON error: {e}"
+                self._log_io(user, error=str(e))
             else:
                 err = self._shape_error(resp)
+                self._log_io(user, resp=resp)
 
             if err is None and resp.get("tool") is not None:
                 name = resp["tool"]
