@@ -43,6 +43,18 @@ def initial_claims(subregions: dict, background: Subregion, cfg: Config,
                              remedy="sample the integrity ring in this sector"))
     return claims
 
+def open_claims_for(sid: str, claims: ClaimSet, round_no: int = 0) -> list:
+    """Open one COV + one ROB claim for a (newly confirmed) demand object.
+    Returns the created claims; the caller flip-tests them at birth."""
+    made = []
+    for prefix, ctype in (("COV", COVERAGE), ("ROB", ROBUSTNESS)):
+        cid = f"{prefix}:{sid}"
+        if cid not in claims:
+            made.append(claims.add(Claim(
+                cid=cid, ctype=ctype, subject=sid, born_round=round_no,
+                remedy="sample this object's evidence cells")))
+    return made
+
 
 # --------------------------------------------------------------- split helper
 def _pass_fail_clustered(votes, cfg: Config) -> tuple | None:
