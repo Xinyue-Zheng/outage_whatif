@@ -118,3 +118,43 @@ def background_grid_points(boundary, cfg: Config,
             y += g
         x += g
     return pts
+
+
+def object_points(sub: Subregion, raster: PopulationRaster, cfg: Config,
+                  rng: np.random.Generator, k: int) -> list:
+    """Up to k points, one per evidence cell, edge-first — the standard
+    probe layout for an area object."""
+    order = _cells_edge_first(sub, raster, cfg)
+    return [_point_in_cell(sub, raster, c, cfg, rng) for c in order[:k]]
+
+
+def densify_cells(sub: Subregion, raster: PopulationRaster, unsampled: list,
+                  cfg: Config, rng: np.random.Generator,
+                  k: int | None = None) -> list:
+    """Remedy for an undecided coverage/robustness claim: points in up to k
+    *unsampled* evidence cells, edge-first."""
+    k = k if k is not None else cfg.densify_cells_per_round
+    order = [c for c in _cells_edge_first(sub, raster, cfg) if c in set(unsampled)]
+    return [_point_in_cell(sub, raster, c, cfg, rng) for c in order[:k]]
+
+
+def random_probe_points(target_xy: tuple, sites: dict, cfg: Config,
+                        rng: np.random.Generator) -> list:
+    """The ~suggested_random_probes exploration locations, uniform over the
+    candidate zone (rejection sampling).  Generated once at setup and
+    surfaced by the audit as a suggested gap-remedy — never auto-executed."""
+    from ..demand.objects import in_candidate_zone
+    tx, ty = target_xy
+    others = sorted(math.hypot(x - tx, y - ty)
+                    for s, (x, y) in sites.items() if (x, y) != target_xy)
+    r_max = (others[0] if others else 2000.0) + cfg.policy.candidate_margin_m
+    pts: list = []
+    for _ in range(200 * cfg.suggested_random_probes):
+        if len(pts) >= cfg.suggested_random_probes:
+            break
+        x = tx + rng.uniform(-r_max, r_max)
+        y = ty + rng.uniform(-r_max, r_max)
+        if in_candidate_zone(x, y, target_xy, sites,
+                             cfg.policy.candidate_margin_m):
+            pts.append((round(float(x), 1), round(float(y), 1)))
+    return pts
