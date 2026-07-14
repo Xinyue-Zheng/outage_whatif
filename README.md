@@ -2,7 +2,9 @@
 
 > **PROJECT.md** is the canonical as-implemented description (architecture,
 > parameters, drift notes). **COPILOT_PROMPT.md** is the fill-in task prompt
-> for the real-data adaptation (FileProvider).
+> for the real-data adaptation. `provider/platform.py::FileProvider` is
+> partially built (`topology`/`population_raster` done; coverage-tile and
+> KPI fetch are the two remaining stubs — see COPILOT_PROMPT.md §2).
 
 A target eNodeB will be switched off during a ticketed window. Assessed at
 one `analysis_hour` inside that window, can the neighboring sites absorb the
@@ -69,6 +71,84 @@ advance -> adjudicate_lifecycle -> assess -> stop_check -> briefing
   rates shown back in the briefing (bookkeeping only — nothing routes
   decisions away from the agent).
 
+## How the pieces fit together
+
+A layered dependency chain — each layer only calls the one below it, and
+no layer skips a layer:
+
+```
+config.py    — read by every layer below; the [POLICY] block is the
+               only part requiring advisor sign-off.
+
+geometry/    — pure spatial math: Wilson intervals, raster segmentation,
+               the 300 m evidence-cell grid, footprint / same-site
+               analysis. Never queries data, never touches claims or
+               the agent — everything here is a function of coordinates
+               already handed to it.
+
+provider/    — the ONLY layer that talks to a real or simulated data
+               source. topology() / population_raster() are free;
+               query_coverage() / query_pm() / buy_profile() are the
+               paid calls loop/engine.py makes after the gate approves
+               a purchase. Returns raw shapes (Topology, PointCoverage,
+               PMSeries, Profile) — knows nothing about claims, demand
+               objects, or the agent.
+
+demand/      — turns the raster (candidate pins) plus already-purchased
+               coverage points into DemandObjects (hypothesized /
+               confirmed / dismissed) and the CellLocalizationBook
+               (per target-cell traffic, accounted / unaccounted /
+               unknown status, residual bound). Consumes geometry/'s
+               evidence-cell math and provider/'s raw shapes; never
+               queries data itself — it only interprets data loop/
+               already paid for.
+
+claims/      — the three-valued claim model. adjudicate.py turns an
+               evidence view (built from geometry/'s evidence grid)
+               into supported / refuted / undecided; lifecycle.py
+               spawns/kills capacity claims and holds the split
+               machinery. Claims open only when demand/ confirms an
+               object.
+
+verdict/     — pure function: claim states + demand/'s severity map +
+               residual bound -> the qualitative verdict. flip.py is
+               the flip test — which claims are actually worth
+               spending on.
+
+planning/    — calibration table (capacity-tier thresholds), comparable-
+               day matching (which historical hours count as capacity
+               evidence), point-placement helpers (how a purchase's
+               coordinates get generated). Called by loop/engine.py
+               while resolving a purchase request, not by claims/
+               verdict/demand directly.
+
+agents/      — the investigator seat + LLM transport + protocol
+               validators + ledgers. The ONLY place complete_json() is
+               called. Sees only the rendered briefing plus its own
+               tool-call results this round; never imports provider/
+               claims/verdict/demand directly — everything it can read
+               or do is exposed as a read-only tool or a committing
+               action by loop/engine.py.
+
+loop/        — the orchestrator tying every layer above into one round:
+               engine.py (CaseRunner — cross-round state, the tools and
+               committing actions the agent can use), graph.py (the
+               LangGraph state machine), gate.py (spend authorization),
+               audit.py (the gap list), briefing.py (renders the
+               agent's entire view), case.py (case-file loading),
+               report.py (the final Markdown report).
+```
+
+Concretely, one round's data flow: `loop/graph.py` refreshes `demand/` +
+`claims/` from whatever was bought last round → `verdict/` computes the
+current answer and `loop/audit.py` lists the gaps → `loop/briefing.py`
+renders both into text → `agents/investigator.py` reads that text, calls
+read-only tools (each a thin wrapper in `loop/engine.py` reading
+`demand/` / `claims/` / `planning/`), and returns one committing action →
+`loop/gate.py` checks it against `claims/`'s flip test and the confidence
+caps → `loop/engine.py` pays through `provider/`, updates `demand/` +
+`claims/`, and the cycle repeats next round.
+
 ## Setup & run
 
 ```bash
@@ -90,6 +170,17 @@ Artifacts land in `outage_whatif/runs/<case>/`: `trace.jsonl`,
 `ledger.json`, `notebook.md`, `events.log`, `report.md` (conditionality
 block, demand-closure statement with the residual bound, briefing history).
 
+For embedding in another system (a real `DataProvider` + your own
+`LLMClient`), call `outage_whatif.run_case.run_case(spec, provider,
+llm_client, ...)` directly — same function the CLI wraps, no argparse
+required. `outage_whatif/dev_one_round.py` runs exactly one round (no
+close-out, no report) and dumps its trace/ledger/notebook to a test path —
+useful while wiring in a new provider or LLM client before trying a full
+run. `outage_whatif/provider/contract_check.py::check_provider_contract()`
+exercises a `DataProvider` instance against the interface's shape
+contract (RSRP ordering, backup count, PMSeries/Profile shapes, price
+consistency) with your own sample inputs — no data leaves your process.
+
 ## Layout
 
 ```
@@ -105,9 +196,12 @@ outage_whatif/
                    # point-placement helpers, suggested random probes
   agents/          # investigator seat + protocol validators, LLM transports
                    # (Ollama / MockLLM / demo client), ledgers
-  provider/        # DataProvider interface, price function, simulator
+  provider/        # DataProvider interface, price function, simulator;
+                   # platform.py = real-data FileProvider (in progress),
+                   # contract_check.py = shape validator for any provider
   loop/            # engine, round graph, briefing, spend gate, audit, report
-  run_case.py      # the round-by-round demo CLI
+  run_case.py      # round-by-round CLI + the reusable run_case() function
+  dev_one_round.py # dev utility: run one round, dump its artifacts
   cases/           # 10 scenario files + calibration_table.json
   tests/           # 72 tests; all run without any LLM server
 scripts/
