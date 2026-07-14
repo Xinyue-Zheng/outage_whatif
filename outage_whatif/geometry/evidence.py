@@ -17,6 +17,23 @@ def cell_of(x: float, y: float, cell_m: float) -> tuple[int, int]:
     return (math.floor(x / cell_m), math.floor(y / cell_m))
 
 
+def units_of_geometry(geometry_type: str, pixels_or_geom, raster,
+                      cell_m: float) -> set:
+    """Evidence units of a demand object.
+
+    EXTENSION POINT (geometry): "area" is the only implemented geometry —
+    its units are the evidence cells containing the object's raster pixels.
+    "line" (e.g. a road) and "point" (e.g. a facility) are reserved; their
+    unit definitions land here so every consumer keeps counting units the
+    same way.
+    """
+    if geometry_type == "area":
+        return {cell_of(*raster.pixel_center(iy, ix), cell_m)
+                for iy, ix in pixels_or_geom.pixels}
+    raise NotImplementedError(
+        f"geometry {geometry_type!r} is reserved (area only for now)")
+
+
 @dataclass
 class PointObs:
     """One sampled coverage point, post-processed against the topology.
